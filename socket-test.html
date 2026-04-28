@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OFNA Realtime Test</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 24px;
+      }
+      input, button {
+        margin: 8px 0;
+        padding: 8px;
+      }
+      #logs {
+        margin-top: 20px;
+        padding: 12px;
+        border: 1px solid #ccc;
+        min-height: 200px;
+        white-space: pre-wrap;
+        background: #f8f8f8;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>OFNA Realtime Test</h2>
+
+    <div>
+      <label>User ID</label><br />
+      <input id="userId" style="width: 420px" placeholder="UUID utilisateur" />
+    </div>
+
+    <button onclick="connectSocket()">Connecter Socket</button>
+    <button onclick="identifySocket()">Identifier utilisateur</button>
+
+    <div id="logs"></div>
+
+    <script>
+      let socket;
+
+      function log(message) {
+        const logs = document.getElementById('logs');
+        logs.textContent += message + '\n';
+      }
+
+      function connectSocket() {
+        socket = io('http://localhost:3000/realtime');
+
+        socket.on('connect', () => {
+          log('[connect] socket id = ' + socket.id);
+        });
+
+        socket.on('disconnect', () => {
+          log('[disconnect]');
+        });
+
+        socket.onAny((event, data) => {
+          log('[event] ' + event + ' -> ' + JSON.stringify(data, null, 2));
+        });
+      }
+
+      function identifySocket() {
+        const userId = document.getElementById('userId').value;
+
+        if (!socket) {
+          log('Connecte le socket d’abord.');
+          return;
+        }
+
+        socket.emit(
+          'auth:identify',
+          {
+            userId,
+          },
+          (response) => {
+            log('[identify ack] ' + JSON.stringify(response, null, 2));
+          },
+        );
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { MissionEntity } from '../missions/entities/mission.entity';
+import { WalletEntity } from '../wallets/entities/wallet.entity';
+import { WalletTransactionEntity } from './entities/wallet-transaction.entity';
+import { WalletTransactionsController } from './wallet-transactions.controller';
+import { WalletTransactionsService } from './wallet-transactions.service';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+      WalletTransactionEntity,
+      WalletEntity,
+      MissionEntity,
+    ]),
+  ],
+  controllers: [WalletTransactionsController],
+  providers: [WalletTransactionsService],
+  exports: [WalletTransactionsService, TypeOrmModule],
+})
+export class WalletTransactionsModule {}
