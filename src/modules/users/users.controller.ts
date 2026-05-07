@@ -13,6 +13,25 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('me')
+  async getMe(
+    @CurrentUser() currentUser: CurrentUserData,
+  ): Promise<UserEntity> {
+    return this.usersService.getProfile(currentUser.sub);
+  }
+
+  @Patch('me')
+  async updateMe(
+    @CurrentUser() currentUser: CurrentUserData,
+    @Body() dto: UpdateProfileDto,
+  ): Promise<UserEntity> {
+    return this.usersService.updateProfile(currentUser.sub, dto);
+  }
+
+  /**
+   * Compatibilité avec l’existant.
+   * À garder pour ne pas casser les anciennes pages qui utilisent /users/profile.
+   */
   @Get('profile')
   async getProfile(
     @CurrentUser() currentUser: CurrentUserData,

@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { WalletStatus } from '../../common/enums/wallet-status.enum';
 import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
 import { WalletRechargeEntity } from '../wallet-recharges/entities/wallet-recharge.entity';
+import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-transaction.entity';
 import { WalletEntity } from './entities/wallet.entity';
 import { WalletSummary } from './interfaces/wallet-summary.interface';
 
@@ -13,10 +14,15 @@ export class WalletsService {
   constructor(
     @InjectRepository(WalletEntity)
     private readonly walletsRepository: Repository<WalletEntity>,
+
     @InjectRepository(PartnerProfileEntity)
     private readonly partnerProfilesRepository: Repository<PartnerProfileEntity>,
+
     @InjectRepository(WalletRechargeEntity)
     private readonly walletRechargesRepository: Repository<WalletRechargeEntity>,
+
+    @InjectRepository(WalletTransactionEntity)
+    private readonly walletTransactionsRepository: Repository<WalletTransactionEntity>,
   ) {}
 
   private computeWalletStatus(balance: number): WalletStatus {
@@ -75,10 +81,27 @@ export class WalletsService {
     return this.ensureWalletForUser(userId);
   }
 
-  async getWalletHistory(userId: string): Promise<WalletRechargeEntity[]> {
+  async getWalletHistory(userId: string): Promise<WalletTransactionEntity[]> {
     const wallet = await this.ensureWalletForUser(userId);
 
-    return this.walletRechargesRepository.find({
+    return this.walletTransactionsRepository.find({
+      where: {
+        wallet: { id: wallet.id },
+      },
+      relations: {
+        wallet: true,
+        mission: true,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  async getWalletSummary(userId: string): Promise<WalletSummary> {
+    const wallet = await this.ensureWalletForUser(userId);
+
+    const rechargeHistory = await this.walletRechargesRepository.find({
       where: {
         wallet: { id: wallet.id },
       },
@@ -89,25 +112,22 @@ export class WalletsService {
         createdAt: 'DESC',
       },
     });
-  }
 
-  async getWalletSummary(userId: string): Promise<WalletSummary> {
-    const wallet = await this.ensureWalletForUser(userId);
-    const history = await this.getWalletHistory(userId);
-
-    const successfulRecharges = history.filter(
-      (item) => item.transactionStatus === 'reussie',
-    );
+    const successfulRecharges = rechargeHistory.filter((item) => {
+      return String(item.transactionStatus) === 'reussie';
+    });
 
     const numericBalance = Number(wallet.balance);
+
     wallet.walletStatus = this.computeWalletStatus(numericBalance);
+
     await this.walletsRepository.save(wallet);
 
     return {
       wallet,
-      totalRecharges: history.length,
+      totalRecharges: rechargeHistory.length,
       successfulRechargesCount: successfulRecharges.length,
-      latestRecharge: history[0] ?? null,
+      latestRecharge: rechargeHistory[0] ?? null,
     };
   }
 
@@ -126,5 +146,4 @@ export class WalletsService {
       },
     });
   }
-  
 }

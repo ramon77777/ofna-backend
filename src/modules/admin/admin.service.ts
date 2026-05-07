@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -15,10 +19,13 @@ import { MissionEntity } from '../missions/entities/mission.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PartnerDocumentEntity } from '../partner-documents/entities/partner-document.entity';
 import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
+import { UserEntity } from '../users/entities/user.entity';
 import { WalletRechargeEntity } from '../wallet-recharges/entities/wallet-recharge.entity';
 import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-transaction.entity';
 import { WalletEntity } from '../wallets/entities/wallet.entity';
 import { RequestPartnerDocumentsDto } from './dto/request-partner-documents.dto';
+import { UpdatePartnerDocumentStatusDto } from './dto/update-partner-document-status.dto';
+import { UpdatePartnerVisibilityDto } from './dto/update-partner-visibility.dto';
 import { ValidatePartnerDto } from './dto/validate-partner.dto';
 
 @Injectable()
@@ -31,6 +38,9 @@ export class AdminService {
 
     @InjectRepository(PartnerDocumentEntity)
     private readonly partnerDocumentsRepository: Repository<PartnerDocumentEntity>,
+
+    @InjectRepository(UserEntity)
+    private readonly usersRepository: Repository<UserEntity>,
 
     @InjectRepository(MissionEntity)
     private readonly missionsRepository: Repository<MissionEntity>,
@@ -84,7 +94,9 @@ export class AdminService {
     });
   }
 
-  async getPartnerDetails(partnerProfileId: string): Promise<PartnerProfileEntity> {
+  async getPartnerDetails(
+    partnerProfileId: string,
+  ): Promise<PartnerProfileEntity> {
     const partner = await this.partnerProfilesRepository.findOne({
       where: { id: partnerProfileId },
       relations: {
@@ -149,6 +161,64 @@ export class AdminService {
     return this.getPartnerDetails(partnerProfileId);
   }
 
+  async updatePartnerVisibility(
+    partnerProfileId: string,
+    dto: UpdatePartnerVisibilityDto,
+  ): Promise<PartnerProfileEntity> {
+    const partner = await this.partnerProfilesRepository.findOne({
+      where: { id: partnerProfileId },
+      relations: {
+        user: true,
+        documents: true,
+        wallet: true,
+      },
+    });
+
+    if (!partner) {
+      throw new NotFoundException('Partner profile not found');
+    }
+
+    const documents = partner.documents ?? [];
+
+    const allDocumentsValidated =
+      documents.length > 0 &&
+      documents.every(
+        (document) => document.documentStatus === PartnerDocumentStatus.VALIDE,
+      );
+
+    if (dto.isVisible === true) {
+      if (
+        partner.validationStatus !== PartnerValidationStatus.VALIDE &&
+        !allDocumentsValidated
+      ) {
+        throw new BadRequestException(
+          'Le partenaire doit être validé ou avoir tous ses documents validés avant d’être rendu visible.',
+        );
+      }
+
+      partner.validationStatus = PartnerValidationStatus.VALIDE;
+      partner.validatedAt = partner.validatedAt ?? new Date();
+      partner.isVisible = true;
+    } else {
+      partner.isVisible = false;
+    }
+
+    await this.partnerProfilesRepository.save(partner);
+
+    await this.notificationsService.createNotification({
+      userId: partner.user.id,
+      title: dto.isVisible
+        ? 'Votre profil est maintenant visible'
+        : 'Votre profil a été masqué',
+      message: dto.isVisible
+        ? 'Votre profil partenaire est maintenant visible dans l’application OFNA.'
+        : 'Votre profil partenaire a été masqué par l’administration OFNA.',
+      notificationType: NotificationType.VALIDATION_COMPTE,
+    });
+
+    return this.getPartnerDetails(partnerProfileId);
+  }
+
   async requestPartnerDocuments(
     partnerProfileId: string,
     dto: RequestPartnerDocumentsDto,
@@ -183,6 +253,123 @@ export class AdminService {
       userId: partner.user.id,
       title: 'Documents complémentaires demandés',
       message: dto.message,
+      notificationType: NotificationType.VALIDATION_COMPTE,
+    });
+
+    return this.getPartnerDetails(partnerProfileId);
+  }
+
+  async updatePartnerDocumentStatus(
+    adminUserId: string,
+    partnerProfileId: string,
+    documentId: string,
+    dto: UpdatePartnerDocumentStatusDto,
+  ): Promise<PartnerProfileEntity> {
+    const partner = await this.partnerProfilesRepository.findOne({
+      where: { id: partnerProfileId },
+      relations: {
+        user: true,
+        documents: true,
+        wallet: true,
+      },
+    });
+
+    if (!partner) {
+      throw new NotFoundException('Partner profile not found');
+    }
+
+    const document = await this.partnerDocumentsRepository.findOne({
+      where: {
+        id: documentId,
+        partnerProfile: { id: partnerProfileId },
+      },
+      relations: {
+        partnerProfile: true,
+        verifiedByAdmin: true,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Partner document not found');
+    }
+
+    const adminUser = await this.usersRepository.findOne({
+      where: { id: adminUserId },
+    });
+
+    const cleanComment = dto.adminComment?.trim() || null;
+
+    if (
+      dto.documentStatus === PartnerDocumentStatus.A_REPRENDRE &&
+      !cleanComment
+    ) {
+      throw new BadRequestException(
+        'Un commentaire est obligatoire pour demander une reprise de document.',
+      );
+    }
+
+    document.documentStatus = dto.documentStatus;
+    document.adminComment = cleanComment;
+    document.verifiedAt = new Date();
+    document.verifiedByAdmin = adminUser ?? null;
+
+    await this.partnerDocumentsRepository.save(document);
+
+    const updatedDocuments = await this.partnerDocumentsRepository.find({
+      where: {
+        partnerProfile: { id: partnerProfileId },
+      },
+    });
+
+    const hasDocumentToRedo = updatedDocuments.some(
+      (item) => item.documentStatus === PartnerDocumentStatus.A_REPRENDRE,
+    );
+
+    const hasRejectedDocument = updatedDocuments.some(
+      (item) => item.documentStatus === PartnerDocumentStatus.REJETE,
+    );
+
+    const allDocumentsValidated =
+      updatedDocuments.length > 0 &&
+      updatedDocuments.every(
+        (item) => item.documentStatus === PartnerDocumentStatus.VALIDE,
+      );
+
+    if (hasDocumentToRedo) {
+      partner.validationStatus = PartnerValidationStatus.DOCUMENTS_A_COMPLETER;
+      partner.isVisible = false;
+    } else if (hasRejectedDocument) {
+      partner.validationStatus = PartnerValidationStatus.REJETE;
+      partner.isVisible = false;
+    } else if (allDocumentsValidated) {
+      partner.validationStatus = PartnerValidationStatus.EN_COURS_VERIFICATION;
+    }
+
+    await this.partnerProfilesRepository.save(partner);
+
+    let notificationMessage =
+      cleanComment ??
+      `Le statut de votre document ${document.documentType} a été mis à jour.`;
+
+    if (dto.documentStatus === PartnerDocumentStatus.VALIDE) {
+      notificationMessage = `Votre document ${document.documentType} a été validé.`;
+    }
+
+    if (dto.documentStatus === PartnerDocumentStatus.REJETE) {
+      notificationMessage =
+        cleanComment ?? `Votre document ${document.documentType} a été rejeté.`;
+    }
+
+    if (dto.documentStatus === PartnerDocumentStatus.A_REPRENDRE) {
+      notificationMessage =
+        cleanComment ??
+        `Votre document ${document.documentType} doit être repris.`;
+    }
+
+    await this.notificationsService.createNotification({
+      userId: partner.user.id,
+      title: 'Mise à jour de document partenaire',
+      message: notificationMessage,
       notificationType: NotificationType.VALIDATION_COMPTE,
     });
 
@@ -275,13 +462,18 @@ export class AdminService {
       }
 
       if (mission.commissions && mission.commissions.length > 0) {
-        mission.commissionProcessed = true;
-        await manager.save(MissionEntity, mission);
+        await manager.update(
+          MissionEntity,
+          { id: mission.id },
+          { commissionProcessed: true },
+        );
         return;
       }
 
       if (!mission.partnerProfile) {
-        throw new BadRequestException('Cette mission n’a pas de partenaire assigné.');
+        throw new BadRequestException(
+          'Cette mission n’a pas de partenaire assigné.',
+        );
       }
 
       if (!mission.partnerProfile.wallet) {
@@ -289,18 +481,25 @@ export class AdminService {
       }
 
       if (!mission.validatedAmount) {
-        throw new BadRequestException('Cette mission n’a pas de montant validé.');
+        throw new BadRequestException(
+          'Cette mission n’a pas de montant validé.',
+        );
       }
 
       const wallet = mission.partnerProfile.wallet;
       const operationAmount = Number(mission.validatedAmount);
+      const commissionRate = Number(this.commissionRate);
 
       if (Number.isNaN(operationAmount) || operationAmount <= 0) {
         throw new BadRequestException('Montant validé invalide.');
       }
 
+      if (Number.isNaN(commissionRate) || commissionRate <= 0) {
+        throw new BadRequestException('Taux de commission invalide.');
+      }
+
       const commissionAmount = Number(
-        ((operationAmount * this.commissionRate) / 100).toFixed(2),
+        ((operationAmount * commissionRate) / 100).toFixed(2),
       );
 
       const balanceBefore = Number(wallet.balance);
@@ -315,37 +514,23 @@ export class AdminService {
         );
       }
 
-      const balanceAfter = Number((balanceBefore - commissionAmount).toFixed(2));
-
-      const insertedCommission = await manager.query(
-        `
-        INSERT INTO commissions (
-          partner_profile_id,
-          mission_id,
-          order_id,
-          operation_type,
-          operation_amount,
-          commission_rate,
-          commission_amount,
-          note,
-          debited_at,
-          created_at
-        )
-        VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, NOW(), NOW())
-        RETURNING id
-        `,
-        [
-          mission.partnerProfile.id,
-          mission.id,
-          CommissionOperationType.MISSION,
-          operationAmount.toFixed(2),
-          this.commissionRate.toFixed(2),
-          commissionAmount.toFixed(2),
-          'Commission traitée manuellement par le super admin',
-        ],
+      const balanceAfter = Number(
+        (balanceBefore - commissionAmount).toFixed(2),
       );
 
-      const commissionId = insertedCommission[0]?.id as string;
+      const commission = manager.create(CommissionEntity, {
+        partnerProfile: mission.partnerProfile,
+        mission,
+        order: null,
+        operationType: CommissionOperationType.MISSION,
+        operationAmount: operationAmount.toFixed(2),
+        commissionRate: commissionRate.toFixed(2),
+        commissionAmount: commissionAmount.toFixed(2),
+        note: 'Commission traitée manuellement par le super admin',
+        debitedAt: new Date(),
+      });
+
+      const savedCommission = await manager.save(CommissionEntity, commission);
 
       wallet.balance = balanceAfter.toFixed(2);
       wallet.walletStatus = this.getWalletStatus(balanceAfter);
@@ -354,21 +539,21 @@ export class AdminService {
 
       await manager.query(
         `
-        INSERT INTO wallet_transactions (
-          wallet_id,
-          transaction_type,
-          source_type,
-          amount,
-          balance_before,
-          balance_after,
-          mission_id,
-          label,
-          reference,
-          note,
-          created_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-        `,
+      INSERT INTO wallet_transactions (
+        wallet_id,
+        transaction_type,
+        source_type,
+        amount,
+        balance_before,
+        balance_after,
+        mission_id,
+        label,
+        reference,
+        note,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+      `,
         [
           wallet.id,
           WalletTransactionType.DEBIT,
@@ -378,13 +563,16 @@ export class AdminService {
           balanceAfter.toFixed(2),
           mission.id,
           'Commission mission',
-          commissionId,
+          savedCommission.id,
           'Commission prélevée par le super admin',
         ],
       );
 
-      mission.commissionProcessed = true;
-      await manager.save(MissionEntity, mission);
+      await manager.update(
+        MissionEntity,
+        { id: mission.id },
+        { commissionProcessed: true },
+      );
     });
 
     return this.getMissionDetails(missionId);
@@ -401,9 +589,12 @@ export class AdminService {
       .select('COALESCE(SUM(recharge.amount), 0)', 'total')
       .getRawOne<{ total: string }>();
 
-    const pendingRecharges = await this.walletRechargesRepository.count({
-      where: { transactionStatus: 'en_attente' as any },
-    });
+    const pendingRecharges = await this.walletRechargesRepository
+      .createQueryBuilder('walletRecharge')
+      .where('walletRecharge.transactionStatus = :status', {
+        status: 'en_attente',
+      })
+      .getCount();
 
     const totalTransactions = await this.walletTransactionsRepository.count();
 
@@ -458,7 +649,9 @@ export class AdminService {
 
     return {
       stats: {
-        totalCommissionAmount: Number(totalCommissionRaw?.total ?? '0').toFixed(2),
+        totalCommissionAmount: Number(totalCommissionRaw?.total ?? '0').toFixed(
+          2,
+        ),
         totalRechargeAmount: Number(totalRechargesRaw?.total ?? '0').toFixed(2),
         pendingRecharges,
         totalTransactions,
@@ -490,9 +683,12 @@ export class AdminService {
       where: { missionStatus: MissionStatus.TERMINEE },
     });
 
-    const pendingRecharges = await this.walletRechargesRepository.count({
-      where: { transactionStatus: 'en_attente' as any },
-    });
+    const pendingRecharges = await this.walletRechargesRepository
+      .createQueryBuilder('walletRecharge')
+      .where('walletRecharge.transactionStatus = :status', {
+        status: 'en_attente',
+      })
+      .getCount();
 
     const documentsToRedo = await this.partnerDocumentsRepository.count({
       where: { documentStatus: PartnerDocumentStatus.A_REPRENDRE },
@@ -589,7 +785,9 @@ export class AdminService {
         validatedPartners,
         totalMissions,
         completedMissions,
-        totalCommissionAmount: Number(totalCommissionRaw?.total ?? '0').toFixed(2),
+        totalCommissionAmount: Number(totalCommissionRaw?.total ?? '0').toFixed(
+          2,
+        ),
         pendingRecharges,
         documentsToRedo,
         commissionsToProcess,

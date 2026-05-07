@@ -1,10 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { MissionStatus } from '../../common/enums/mission-status.enum';
 import { MissionEntity } from '../missions/entities/mission.entity';
 import { MissionStatusHistoryEntity } from './entities/mission-status-history.entity';
+
+import { UserRole } from '../../common/enums/user-role.enum';
+import { CurrentUserData } from '../../common/interfaces/current-user.interface';
 
 @Injectable()
 export class MissionStatusHistoryService {
@@ -55,5 +62,39 @@ export class MissionStatusHistoryService {
         changedAt: 'ASC',
       },
     });
+  }
+
+  async getMissionHistoryForUser(
+    currentUser: CurrentUserData,
+    missionId: string,
+  ): Promise<MissionStatusHistoryEntity[]> {
+    const mission = await this.missionsRepository.findOne({
+      where: { id: missionId },
+      relations: {
+        client: true,
+        partnerProfile: {
+          user: true,
+        },
+      },
+    });
+
+    if (!mission) {
+      throw new NotFoundException('Mission not found');
+    }
+
+    const userRole = currentUser.role;
+    const userId = currentUser.sub;
+
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isMissionClient = mission.client?.id === userId;
+    const isMissionPartner = mission.partnerProfile?.user?.id === userId;
+
+    if (!isAdmin && !isMissionClient && !isMissionPartner) {
+      throw new ForbiddenException(
+        'Vous n’êtes pas autorisé à consulter l’historique de cette mission.',
+      );
+    }
+
+    return this.getMissionHistory(missionId);
   }
 }

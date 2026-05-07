@@ -1,17 +1,24 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
+import { CommissionOperationType } from '../../common/enums/commission-operation-type.enum';
 import { MissionStatus } from '../../common/enums/mission-status.enum';
 import { NotificationType } from '../../common/enums/notification-type.enum';
+import { WalletStatus } from '../../common/enums/wallet-status.enum';
+import { WalletTransactionSource } from '../../common/enums/wallet-transaction-source.enum';
+import { WalletTransactionType } from '../../common/enums/wallet-transaction-type.enum';
 import { RealtimeGateway } from '../../gateways/realtime/realtime.gateway';
 import { MissionStatusHistoryService } from '../mission-status-history/mission-status-history.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
 import { UserEntity } from '../users/entities/user.entity';
+import { WalletEntity } from '../wallets/entities/wallet.entity';
 import { AcceptMissionDto } from './dto/accept-mission.dto';
 import { CancelMissionDto } from './dto/cancel-mission.dto';
 import { CreateMissionDto } from './dto/create-mission.dto';
@@ -19,40 +26,42 @@ import { ProposeMissionPriceDto } from './dto/propose-mission-price.dto';
 import { UpdateMissionStatusDto } from './dto/update-mission-status.dto';
 import { ValidateMissionPriceDto } from './dto/validate-mission-price.dto';
 import { MissionEntity } from './entities/mission.entity';
-
-import { DataSource, Repository } from 'typeorm';
-import { CommissionOperationType } from '../../common/enums/commission-operation-type.enum';
-import { WalletStatus } from '../../common/enums/wallet-status.enum';
-import { WalletTransactionSource } from '../../common/enums/wallet-transaction-source.enum';
-import { WalletTransactionType } from '../../common/enums/wallet-transaction-type.enum';
 import { CommissionEntity } from '../commissions/entities/commission.entity';
-import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-transaction.entity';
-import { WalletEntity } from '../wallets/entities/wallet.entity';
+
+import { UserRole } from '../../common/enums/user-role.enum';
+import { CurrentUserData } from '../../common/interfaces/current-user.interface';
 
 @Injectable()
 export class MissionsService {
+  private readonly commissionRate = 10;
+
   constructor(
     @InjectRepository(MissionEntity)
     private readonly missionsRepository: Repository<MissionEntity>,
+
     @InjectRepository(UserEntity)
     private readonly usersRepository: Repository<UserEntity>,
+
     @InjectRepository(PartnerProfileEntity)
     private readonly partnerProfilesRepository: Repository<PartnerProfileEntity>,
+
     private readonly missionStatusHistoryService: MissionStatusHistoryService,
     private readonly notificationsService: NotificationsService,
     private readonly realtimeGateway: RealtimeGateway,
-
-    @InjectRepository(CommissionEntity)
-    private readonly commissionsRepository: Repository<CommissionEntity>,
-
-    @InjectRepository(WalletEntity)
-    private readonly walletsRepository: Repository<WalletEntity>,
-
-    @InjectRepository(WalletTransactionEntity)
-    private readonly walletTransactionsRepository: Repository<WalletTransactionEntity>,
-
     private readonly dataSource: DataSource,
   ) {}
+
+  private getWalletStatus(balance: number): WalletStatus {
+    if (balance <= 0) {
+      return WalletStatus.VIDE;
+    }
+
+    if (balance < 5000) {
+      return WalletStatus.FAIBLE;
+    }
+
+    return WalletStatus.ACTIF;
+  }
 
   private buildMissionCreatedPayload(
     mission: MissionEntity,
@@ -130,6 +139,7 @@ export class MissionsService {
       acceptedAt: mission.acceptedAt ?? null,
       completedAt: mission.completedAt ?? null,
       cancelledAt: mission.cancelledAt ?? null,
+      commissionProcessed: mission.commissionProcessed,
       message,
     };
   }
@@ -267,6 +277,28 @@ export class MissionsService {
     return mission;
   }
 
+  async getMissionByIdForUser(
+    currentUser: CurrentUserData,
+    missionId: string,
+  ): Promise<MissionEntity> {
+    const mission = await this.getMissionById(missionId);
+
+    const userRole = currentUser.role;
+    const userId = currentUser.sub;
+
+    const isAdmin = userRole === UserRole.ADMIN;
+    const isMissionClient = mission.client?.id === userId;
+    const isMissionPartner = mission.partnerProfile?.user?.id === userId;
+
+    if (!isAdmin && !isMissionClient && !isMissionPartner) {
+      throw new ForbiddenException(
+        'Vous n’êtes pas autorisé à consulter cette mission.',
+      );
+    }
+
+    return mission;
+  }
+
   async getClientMissions(clientUserId: string): Promise<MissionEntity[]> {
     return this.missionsRepository.find({
       where: {
@@ -305,6 +337,34 @@ export class MissionsService {
         createdAt: 'DESC',
       },
     });
+  }
+
+  async getPartnerMissionById(
+    partnerUserId: string,
+    missionId: string,
+  ): Promise<MissionEntity> {
+    const mission = await this.missionsRepository.findOne({
+      where: {
+        id: missionId,
+        partnerProfile: {
+          user: { id: partnerUserId },
+        },
+      },
+      relations: {
+        client: true,
+        partnerProfile: {
+          user: true,
+          wallet: true,
+        },
+        commissions: true,
+      },
+    });
+
+    if (!mission) {
+      throw new NotFoundException('Mission not found for this partner');
+    }
+
+    return mission;
   }
 
   async acceptMission(
@@ -568,97 +628,110 @@ export class MissionsService {
   }
 
   private async processAutomaticMissionCommission(
-  missionId: string,
-): Promise<void> {
-  await this.dataSource.transaction(async (manager) => {
-    const mission = await manager.findOne(MissionEntity, {
-      where: { id: missionId },
-      relations: {
-        partnerProfile: { wallet: true },
-      },
-    });
+    missionId: string,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const mission = await manager.findOne(MissionEntity, {
+        where: { id: missionId },
+        relations: {
+          partnerProfile: {
+            wallet: true,
+          },
+          commissions: true,
+        },
+      });
 
-    if (!mission) throw new NotFoundException('Mission not found');
-    if (mission.commissionProcessed) {
-      return;
-    }
+      if (!mission) {
+        throw new NotFoundException('Mission not found');
+      }
 
-    // 🔥 sécurité anti double commission (DB level)
-    if (mission.commissions && mission.commissions.length > 0) {
-      return;
-    }
-    if (mission.missionStatus !== MissionStatus.TERMINEE) return;
+      if (mission.commissionProcessed) {
+        return;
+      }
 
-    if (!mission.partnerProfile) {
-      throw new BadRequestException('Cette mission n’a pas de partenaire assigné.');
-    }
+      if (mission.commissions && mission.commissions.length > 0) {
+        await manager.update(
+          MissionEntity,
+          { id: mission.id },
+          { commissionProcessed: true },
+        );
+        return;
+      }
 
-    if (!mission.partnerProfile.wallet) {
-      throw new BadRequestException('Le partenaire n’a pas de portefeuille.');
-    }
+      if (mission.missionStatus !== MissionStatus.TERMINEE) {
+        return;
+      }
 
-    if (!mission.validatedAmount) {
-      throw new BadRequestException('Cette mission n’a pas de montant validé.');
-    }
+      if (!mission.partnerProfile) {
+        throw new BadRequestException(
+          'Cette mission n’a pas de partenaire assigné.',
+        );
+      }
 
-    const wallet = mission.partnerProfile.wallet;
-    const operationAmount = Number(mission.validatedAmount);
-    const commissionRate = 10;
-    const commissionAmount = Number(((operationAmount * commissionRate) / 100).toFixed(2));
-    const balanceBefore = Number(wallet.balance);
+      if (!mission.partnerProfile.wallet) {
+        throw new BadRequestException('Le partenaire n’a pas de portefeuille.');
+      }
 
-    if (Number.isNaN(operationAmount) || operationAmount <= 0) {
-      throw new BadRequestException('Montant validé invalide.');
-    }
+      if (!mission.validatedAmount) {
+        throw new BadRequestException(
+          'Cette mission n’a pas de montant validé.',
+        );
+      }
 
-    if (balanceBefore < commissionAmount) {
-      throw new BadRequestException('Solde portefeuille insuffisant pour prélever la commission.');
-    }
+      const wallet = mission.partnerProfile.wallet;
+      const operationAmount = Number(mission.validatedAmount);
+      const commissionRate = 10;
 
-    const balanceAfter = Number((balanceBefore - commissionAmount).toFixed(2));
+      if (Number.isNaN(operationAmount) || operationAmount <= 0) {
+        throw new BadRequestException('Montant validé invalide.');
+      }
 
-    const insertedCommission = await manager.query(
-      `
-      INSERT INTO commissions (
-        partner_profile_id,
-        mission_id,
-        order_id,
-        operation_type,
-        operation_amount,
-        commission_rate,
-        commission_amount,
-        note,
-        debited_at,
-        created_at
-      )
-      VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, NOW(), NOW())
-      RETURNING id
-      `,
-      [
-        mission.partnerProfile.id,
-        mission.id,
-        CommissionOperationType.MISSION,
-        operationAmount.toFixed(2),
-        commissionRate.toFixed(2),
-        commissionAmount.toFixed(2),
-        'Commission automatique après mission terminée',
-      ],
-    );
+      const commissionAmount = Number(
+        ((operationAmount * commissionRate) / 100).toFixed(2),
+      );
 
-    const commissionId = insertedCommission[0]?.id as string;
+      const balanceBefore = Number(wallet.balance);
 
-    wallet.balance = balanceAfter.toFixed(2);
-    wallet.walletStatus =
-      balanceAfter <= 0
-        ? WalletStatus.VIDE
-        : balanceAfter < 5000
-          ? WalletStatus.FAIBLE
-          : WalletStatus.ACTIF;
+      if (Number.isNaN(balanceBefore)) {
+        throw new BadRequestException('Solde portefeuille invalide.');
+      }
 
-    await manager.save(WalletEntity, wallet);
+      if (balanceBefore < commissionAmount) {
+        throw new BadRequestException(
+          'Solde portefeuille insuffisant pour prélever la commission.',
+        );
+      }
 
-    await manager.query(
-      `
+      const balanceAfter = Number(
+        (balanceBefore - commissionAmount).toFixed(2),
+      );
+
+      const commission = manager.create(CommissionEntity, {
+        partnerProfile: mission.partnerProfile,
+        mission,
+        order: null,
+        operationType: CommissionOperationType.MISSION,
+        operationAmount: operationAmount.toFixed(2),
+        commissionRate: commissionRate.toFixed(2),
+        commissionAmount: commissionAmount.toFixed(2),
+        note: 'Commission automatique après mission terminée',
+        debitedAt: new Date(),
+      });
+
+      const savedCommission = await manager.save(CommissionEntity, commission);
+
+      wallet.balance = balanceAfter.toFixed(2);
+      wallet.walletStatus =
+        balanceAfter <= 0
+          ? WalletStatus.VIDE
+          : balanceAfter < 5000
+            ? WalletStatus.FAIBLE
+            : WalletStatus.ACTIF;
+
+      await manager.save(WalletEntity, wallet);
+
+      await manager.query(
+        `
       INSERT INTO wallet_transactions (
         wallet_id,
         transaction_type,
@@ -674,24 +747,50 @@ export class MissionsService {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
       `,
-      [
-        wallet.id,
-        WalletTransactionType.DEBIT,
-        WalletTransactionSource.COMMISSION,
-        commissionAmount.toFixed(2),
-        balanceBefore.toFixed(2),
-        balanceAfter.toFixed(2),
-        mission.id,
-        'Commission mission',
-        commissionId,
-        'Commission prélevée automatiquement après mission terminée',
-      ],
-    );
+        [
+          wallet.id,
+          WalletTransactionType.DEBIT,
+          WalletTransactionSource.COMMISSION,
+          commissionAmount.toFixed(2),
+          balanceBefore.toFixed(2),
+          balanceAfter.toFixed(2),
+          mission.id,
+          'Commission mission',
+          savedCommission.id,
+          'Commission prélevée automatiquement après mission terminée',
+        ],
+      );
 
-    mission.commissionProcessed = true;
-    await manager.save(MissionEntity, mission);
-  });
-}
+      await manager.update(
+        MissionEntity,
+        { id: mission.id },
+        { commissionProcessed: true },
+      );
+    });
+  }
+
+  private assertValidPartnerStatusTransition(
+    currentStatus: MissionStatus,
+    nextStatus: MissionStatus,
+  ): void {
+    const allowedTransitions: Record<MissionStatus, MissionStatus[]> = {
+      [MissionStatus.EN_ATTENTE]: [MissionStatus.ACCEPTEE],
+      [MissionStatus.ACCEPTEE]: [MissionStatus.EN_ROUTE],
+      [MissionStatus.EN_ROUTE]: [MissionStatus.ARRIVE_SUR_PLACE],
+      [MissionStatus.ARRIVE_SUR_PLACE]: [MissionStatus.EN_COURS],
+      [MissionStatus.EN_COURS]: [MissionStatus.TERMINEE],
+      [MissionStatus.TERMINEE]: [],
+      [MissionStatus.ANNULEE]: [],
+    };
+
+    const allowedNextStatuses = allowedTransitions[currentStatus] ?? [];
+
+    if (!allowedNextStatuses.includes(nextStatus)) {
+      throw new BadRequestException(
+        `Transition de statut invalide : ${currentStatus} vers ${nextStatus}.`,
+      );
+    }
+  }
 
   async updateMissionStatus(
     partnerUserId: string,
@@ -722,27 +821,31 @@ export class MissionsService {
 
     const previousStatus = mission.missionStatus;
 
+    this.assertValidPartnerStatusTransition(previousStatus, dto.missionStatus);
+
     mission.missionStatus = dto.missionStatus;
 
     if (dto.missionStatus === MissionStatus.TERMINEE) {
+      if (!mission.validatedAmount) {
+        throw new BadRequestException(
+          'Impossible de terminer la mission sans montant validé.',
+        );
+      }
+
       mission.completedAt = new Date();
     }
 
-    if (dto.missionStatus === MissionStatus.ANNULEE) {
-      mission.cancelledAt = new Date();
-    }
-
     await this.missionsRepository.save(mission);
-
-    if (dto.missionStatus === MissionStatus.TERMINEE) {
-      await this.processAutomaticMissionCommission(mission.id);
-    }
 
     await this.missionStatusHistoryService.addHistoryEntry(mission.id, {
       previousStatus,
       newStatus: dto.missionStatus,
       comment: dto.comment ?? `Mission status updated to ${dto.missionStatus}`,
     });
+
+    if (dto.missionStatus === MissionStatus.TERMINEE) {
+      await this.processAutomaticMissionCommission(mission.id);
+    }
 
     const freshMission = await this.getMissionById(mission.id);
 

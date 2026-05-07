@@ -7,10 +7,7 @@ import { MissionStatusHistoryService } from './mission-status-history.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      MissionStatusHistoryEntity,
-      MissionEntity,
-    ]),
+    TypeOrmModule.forFeature([MissionStatusHistoryEntity, MissionEntity]),
   ],
   providers: [MissionStatusHistoryService],
   exports: [MissionStatusHistoryService],

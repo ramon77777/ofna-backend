@@ -1,23 +1,35 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PartnerDocumentStatus } from '../../common/enums/partner-document-status.enum';
+import { PartnerDocumentType } from '../../common/enums/partner-document-type.enum';
 import { PartnerValidationStatus } from '../../common/enums/partner-validation-status.enum';
+import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
 import { UserEntity } from '../users/entities/user.entity';
 import { CreatePartnerDocumentDto } from './dto/create-partner-document.dto';
 import { SubmitPartnerDocumentsDto } from './dto/submit-partner-documents.dto';
 import { UpdatePartnerDocumentDto } from './dto/update-partner-document.dto';
 import { PartnerDocumentEntity } from './entities/partner-document.entity';
-import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
+
+interface UploadedDocumentPayload {
+  documentType?: PartnerDocumentType;
+  fileUrl: string;
+}
 
 @Injectable()
 export class PartnerDocumentsService {
   constructor(
     @InjectRepository(PartnerDocumentEntity)
     private readonly partnerDocumentsRepository: Repository<PartnerDocumentEntity>,
+
     @InjectRepository(PartnerProfileEntity)
     private readonly partnerProfilesRepository: Repository<PartnerProfileEntity>,
+
     @InjectRepository(UserEntity)
     private readonly usersRepository: Repository<UserEntity>,
   ) {}
@@ -32,6 +44,7 @@ export class PartnerDocumentsService {
       relations: {
         user: true,
         documents: true,
+        wallet: true,
       },
     });
 
@@ -42,18 +55,82 @@ export class PartnerDocumentsService {
     return partnerProfile;
   }
 
+  private validateFileUrl(fileUrl: string): string {
+    const cleanFileUrl = fileUrl.trim();
+
+    if (!cleanFileUrl) {
+      throw new BadRequestException('Le fichier du document est obligatoire.');
+    }
+
+    return cleanFileUrl;
+  }
+
+  private resetDocumentAfterPartnerUpdate(
+    document: PartnerDocumentEntity,
+  ): PartnerDocumentEntity {
+    document.documentStatus = PartnerDocumentStatus.SOUMIS;
+    document.adminComment = null;
+    document.submittedAt = new Date();
+    document.verifiedAt = null;
+    document.verifiedByAdmin = null;
+
+    return document;
+  }
+
+  /**
+   * Ancien flux conservé :
+   * création avec URL manuelle.
+   */
   async createDocument(
     userId: string,
     dto: CreatePartnerDocumentDto,
   ): Promise<PartnerDocumentEntity> {
     const partnerProfile = await this.getPartnerProfileByUserId(userId);
+    const fileUrl = this.validateFileUrl(dto.fileUrl);
 
     const document = this.partnerDocumentsRepository.create({
       partnerProfile,
       documentType: dto.documentType,
-      fileUrl: dto.fileUrl.trim(),
+      fileUrl,
       documentStatus: PartnerDocumentStatus.SOUMIS,
-      adminComment: dto.adminComment?.trim() ?? null,
+      adminComment: null,
+      submittedAt: new Date(),
+      verifiedAt: null,
+      verifiedByAdmin: null,
+    });
+
+    await this.partnerDocumentsRepository.save(document);
+
+    return this.partnerDocumentsRepository.findOneOrFail({
+      where: { id: document.id },
+      relations: {
+        partnerProfile: true,
+        verifiedByAdmin: true,
+      },
+    });
+  }
+
+  /**
+   * Nouveau flux recommandé :
+   * création après upload fichier.
+   */
+  async createUploadedDocument(
+    userId: string,
+    payload: UploadedDocumentPayload,
+  ): Promise<PartnerDocumentEntity> {
+    if (!payload.documentType) {
+      throw new BadRequestException('Le type de document est obligatoire.');
+    }
+
+    const partnerProfile = await this.getPartnerProfileByUserId(userId);
+    const fileUrl = this.validateFileUrl(payload.fileUrl);
+
+    const document = this.partnerDocumentsRepository.create({
+      partnerProfile,
+      documentType: payload.documentType,
+      fileUrl,
+      documentStatus: PartnerDocumentStatus.SOUMIS,
+      adminComment: null,
       submittedAt: new Date(),
       verifiedAt: null,
       verifiedByAdmin: null,
@@ -87,6 +164,10 @@ export class PartnerDocumentsService {
     });
   }
 
+  /**
+   * Ancien flux conservé :
+   * remplacement via URL manuelle.
+   */
   async updateDocument(
     userId: string,
     documentId: string,
@@ -114,16 +195,55 @@ export class PartnerDocumentsService {
     }
 
     if (dto.fileUrl !== undefined) {
-      document.fileUrl = dto.fileUrl.trim();
+      document.fileUrl = this.validateFileUrl(dto.fileUrl);
     }
 
-    if (dto.documentStatus !== undefined) {
-      document.documentStatus = dto.documentStatus;
+    this.resetDocumentAfterPartnerUpdate(document);
+
+    await this.partnerDocumentsRepository.save(document);
+
+    return this.partnerDocumentsRepository.findOneOrFail({
+      where: { id: document.id },
+      relations: {
+        partnerProfile: true,
+        verifiedByAdmin: true,
+      },
+    });
+  }
+
+  /**
+   * Nouveau flux recommandé :
+   * remplacement avec un vrai fichier uploadé.
+   */
+  async replaceDocumentFile(
+    userId: string,
+    documentId: string,
+    payload: UploadedDocumentPayload,
+  ): Promise<PartnerDocumentEntity> {
+    const partnerProfile = await this.getPartnerProfileByUserId(userId);
+
+    const document = await this.partnerDocumentsRepository.findOne({
+      where: {
+        id: documentId,
+        partnerProfile: { id: partnerProfile.id },
+      },
+      relations: {
+        partnerProfile: true,
+        verifiedByAdmin: true,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Partner document not found');
     }
 
-    if (dto.adminComment !== undefined) {
-      document.adminComment = dto.adminComment.trim();
+    if (payload.documentType !== undefined) {
+      document.documentType = payload.documentType;
     }
+
+    document.fileUrl = this.validateFileUrl(payload.fileUrl);
+
+    this.resetDocumentAfterPartnerUpdate(document);
 
     await this.partnerDocumentsRepository.save(document);
 
@@ -138,20 +258,22 @@ export class PartnerDocumentsService {
 
   async submitDocuments(
     userId: string,
-    _dto: SubmitPartnerDocumentsDto,
+    dto: SubmitPartnerDocumentsDto,
   ): Promise<PartnerProfileEntity> {
-    const partnerProfile = await this.partnerProfilesRepository.findOne({
+    void dto;
+
+    const partnerProfile = await this.getPartnerProfileByUserId(userId);
+
+    const documentsCount = await this.partnerDocumentsRepository.count({
       where: {
-        user: { id: userId },
-      },
-      relations: {
-        user: true,
-        documents: true,
+        partnerProfile: { id: partnerProfile.id },
       },
     });
 
-    if (!partnerProfile) {
-      throw new NotFoundException('Partner profile not found');
+    if (documentsCount === 0) {
+      throw new BadRequestException(
+        'Vous devez ajouter au moins un document avant de soumettre votre dossier.',
+      );
     }
 
     partnerProfile.validationStatus =

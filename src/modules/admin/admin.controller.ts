@@ -11,6 +11,8 @@ import { MissionEntity } from '../missions/entities/mission.entity';
 import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
 import { AdminService } from './admin.service';
 import { RequestPartnerDocumentsDto } from './dto/request-partner-documents.dto';
+import { UpdatePartnerDocumentStatusDto } from './dto/update-partner-document-status.dto';
+import { UpdatePartnerVisibilityDto } from './dto/update-partner-visibility.dto';
 import { ValidatePartnerDto } from './dto/validate-partner.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -20,22 +22,17 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('partners')
-  async getAllPartners(
-    @CurrentUser() _currentUser: CurrentUserData,
-  ): Promise<PartnerProfileEntity[]> {
+  async getAllPartners(): Promise<PartnerProfileEntity[]> {
     return this.adminService.getAllPartners();
   }
 
   @Get('partners/pending')
-  async getPendingPartners(
-    @CurrentUser() _currentUser: CurrentUserData,
-  ): Promise<PartnerProfileEntity[]> {
+  async getPendingPartners(): Promise<PartnerProfileEntity[]> {
     return this.adminService.getPendingPartners();
   }
 
   @Get('partners/:partnerProfileId')
   async getPartnerDetails(
-    @CurrentUser() _currentUser: CurrentUserData,
     @Param('partnerProfileId') partnerProfileId: string,
   ): Promise<PartnerProfileEntity> {
     return this.adminService.getPartnerDetails(partnerProfileId);
@@ -43,32 +40,50 @@ export class AdminController {
 
   @Patch('partners/:partnerProfileId/validate')
   async validatePartner(
-    @CurrentUser() _currentUser: CurrentUserData,
     @Param('partnerProfileId') partnerProfileId: string,
     @Body() dto: ValidatePartnerDto,
   ): Promise<PartnerProfileEntity> {
     return this.adminService.validatePartner(partnerProfileId, dto);
   }
 
+  @Patch('partners/:partnerProfileId/visibility')
+  async updatePartnerVisibility(
+    @Param('partnerProfileId') partnerProfileId: string,
+    @Body() dto: UpdatePartnerVisibilityDto,
+  ): Promise<PartnerProfileEntity> {
+    return this.adminService.updatePartnerVisibility(partnerProfileId, dto);
+  }
+
   @Patch('partners/:partnerProfileId/request-documents')
   async requestPartnerDocuments(
-    @CurrentUser() _currentUser: CurrentUserData,
     @Param('partnerProfileId') partnerProfileId: string,
     @Body() dto: RequestPartnerDocumentsDto,
   ): Promise<PartnerProfileEntity> {
     return this.adminService.requestPartnerDocuments(partnerProfileId, dto);
   }
 
+  @Patch('partners/:partnerProfileId/documents/:documentId/status')
+  async updatePartnerDocumentStatus(
+    @CurrentUser() currentUser: CurrentUserData,
+    @Param('partnerProfileId') partnerProfileId: string,
+    @Param('documentId') documentId: string,
+    @Body() dto: UpdatePartnerDocumentStatusDto,
+  ): Promise<PartnerProfileEntity> {
+    return this.adminService.updatePartnerDocumentStatus(
+      currentUser.sub,
+      partnerProfileId,
+      documentId,
+      dto,
+    );
+  }
+
   @Get('missions')
-  async getAllMissions(
-    @CurrentUser() _currentUser: CurrentUserData,
-  ): Promise<MissionEntity[]> {
+  async getAllMissions(): Promise<MissionEntity[]> {
     return this.adminService.getAllMissions();
   }
 
   @Patch('missions/:missionId/process-commission')
   async processMissionCommission(
-    @CurrentUser() _currentUser: CurrentUserData,
     @Param('missionId') missionId: string,
   ): Promise<MissionEntity> {
     return this.adminService.processMissionCommission(missionId);
@@ -76,26 +91,23 @@ export class AdminController {
 
   @Get('missions/:missionId')
   async getMissionDetails(
-    @CurrentUser() _currentUser: CurrentUserData,
     @Param('missionId') missionId: string,
   ): Promise<MissionEntity> {
     return this.adminService.getMissionDetails(missionId);
   }
 
   @Get('commissions')
-  async getAllCommissions(
-    @CurrentUser() _currentUser: CurrentUserData,
-  ): Promise<CommissionEntity[]> {
+  async getAllCommissions(): Promise<CommissionEntity[]> {
     return this.adminService.getAllCommissions();
   }
 
   @Get('finance')
-  async getFinanceDashboard(@CurrentUser() _currentUser: CurrentUserData) {
+  async getFinanceDashboard() {
     return this.adminService.getFinanceDashboard();
   }
 
   @Get('dashboard')
-  async getDashboard(@CurrentUser() _currentUser: CurrentUserData) {
+  async getDashboard() {
     return this.adminService.getDashboard();
   }
 }

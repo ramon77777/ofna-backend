@@ -22,7 +22,9 @@ import { WalletRechargesService } from './wallet-recharges.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('wallet-recharges')
 export class WalletRechargesController {
-  constructor(private readonly walletRechargesService: WalletRechargesService) {}
+  constructor(
+    private readonly walletRechargesService: WalletRechargesService,
+  ) {}
 
   @Post()
   @Roles(UserRole.PARTNER)

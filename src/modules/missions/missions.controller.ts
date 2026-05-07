@@ -58,11 +58,28 @@ export class MissionsController {
     return this.missionsService.getPartnerMissions(currentUser.sub);
   }
 
+  @Roles(UserRole.PARTNER)
+  @Get('partner/me/:missionId')
+  async getPartnerMissionById(
+    @CurrentUser() currentUser: CurrentUserData,
+    @Param('missionId') missionId: string,
+  ): Promise<MissionEntity> {
+    return this.missionsService.getPartnerMissionById(
+      currentUser.sub,
+      missionId,
+    );
+  }
+
+  @Roles(UserRole.CLIENT, UserRole.PARTNER, UserRole.ADMIN)
   @Get(':missionId/history')
   async getMissionHistory(
+    @CurrentUser() currentUser: CurrentUserData,
     @Param('missionId') missionId: string,
   ): Promise<MissionStatusHistoryEntity[]> {
-    return this.missionStatusHistoryService.getMissionHistory(missionId);
+    return this.missionStatusHistoryService.getMissionHistoryForUser(
+      currentUser,
+      missionId,
+    );
   }
 
   @Roles(UserRole.PARTNER)
@@ -119,10 +136,12 @@ export class MissionsController {
     return this.missionsService.cancelMission(currentUser.sub, missionId, dto);
   }
 
+  @Roles(UserRole.CLIENT, UserRole.PARTNER, UserRole.ADMIN)
   @Get(':missionId')
   async getMissionById(
+    @CurrentUser() currentUser: CurrentUserData,
     @Param('missionId') missionId: string,
   ): Promise<MissionEntity> {
-    return this.missionsService.getMissionById(missionId);
+    return this.missionsService.getMissionByIdForUser(currentUser, missionId);
   }
 }

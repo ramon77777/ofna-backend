@@ -35,6 +35,8 @@ import { WalletsModule } from './modules/wallets/wallets.module';
 import { RealtimeModule } from './gateways/realtime/realtime.module';
 import { WalletTransactionsModule } from './modules/wallet-transactions/wallet-transactions.module';
 import { WalletTransactionEntity } from './modules/wallet-transactions/entities/wallet-transaction.entity';
+import { CommissionsModule } from './modules/commissions/commissions.module';
+import { PasswordResetTokenEntity } from './modules/auth/entities/password-reset-token.entity';
 
 @Module({
   imports: [
@@ -57,6 +59,7 @@ import { WalletTransactionEntity } from './modules/wallet-transactions/entities/
         database: configService.get<string>('database.name'),
         entities: [
           UserEntity,
+          PasswordResetTokenEntity,
           PartnerProfileEntity,
           PartnerDocumentEntity,
           WalletEntity,
@@ -92,6 +95,7 @@ import { WalletTransactionEntity } from './modules/wallet-transactions/entities/
     MatchingModule,
     RealtimeModule,
     WalletTransactionsModule,
+    CommissionsModule,
   ],
 })
 export class AppModule {}

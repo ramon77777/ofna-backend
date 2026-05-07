@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { PartnerProfileEntity } from '../partners/entities/partner-profile.entity';
 import { WalletRechargeEntity } from '../wallet-recharges/entities/wallet-recharge.entity';
+import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-transaction.entity';
 import { WalletEntity } from './entities/wallet.entity';
 import { WalletsController } from './wallets.controller';
 import { WalletsService } from './wallets.service';
@@ -13,6 +14,7 @@ import { WalletsService } from './wallets.service';
       WalletEntity,
       PartnerProfileEntity,
       WalletRechargeEntity,
+      WalletTransactionEntity,
     ]),
   ],
   controllers: [WalletsController],

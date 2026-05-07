@@ -1,4 +1,4 @@
-import { IsEnum, IsString, Length, IsOptional } from 'class-validator';
+import { IsEnum, IsString, Length } from 'class-validator';
 
 import { PartnerDocumentType } from '../../../common/enums/partner-document-type.enum';
 
@@ -9,9 +9,4 @@ export class CreatePartnerDocumentDto {
   @IsString()
   @Length(1, 5000)
   fileUrl!: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(1, 5000)
-  adminComment?: string;
 }

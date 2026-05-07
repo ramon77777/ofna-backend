@@ -7,8 +7,13 @@ import {
 import { Reflector } from '@nestjs/core';
 
 import { UserRole } from '../enums/user-role.enum';
+import { CurrentUserData } from '../interfaces/current-user.interface';
 
 export const ROLES_KEY = 'roles';
+
+interface RequestWithCurrentUser {
+  user?: CurrentUserData;
+}
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -24,8 +29,8 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user as { role?: UserRole } | undefined;
+    const request = context.switchToHttp().getRequest<RequestWithCurrentUser>();
+    const user = request.user;
 
     if (!user?.role) {
       throw new ForbiddenException('User role not found in request');

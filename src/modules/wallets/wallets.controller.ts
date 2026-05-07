@@ -6,7 +6,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUserData } from '../../common/interfaces/current-user.interface';
-import { WalletRechargeEntity } from '../wallet-recharges/entities/wallet-recharge.entity';
+import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-transaction.entity';
 import { WalletEntity } from './entities/wallet.entity';
 import { WalletSummary } from './interfaces/wallet-summary.interface';
 import { WalletsService } from './wallets.service';
@@ -27,7 +27,7 @@ export class WalletsController {
   @Get('me/history')
   async getWalletHistory(
     @CurrentUser() currentUser: CurrentUserData,
-  ): Promise<WalletRechargeEntity[]> {
+  ): Promise<WalletTransactionEntity[]> {
     return this.walletsService.getWalletHistory(currentUser.sub);
   }
 

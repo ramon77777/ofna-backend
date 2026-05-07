@@ -78,7 +78,9 @@ export class PaymentsService {
     message: string;
   }> {
     const result = await this.missionsRepository.manager.transaction(
-      async (manager: EntityManager): Promise<ProcessMissionCommissionResult> => {
+      async (
+        manager: EntityManager,
+      ): Promise<ProcessMissionCommissionResult> => {
         const missionRepository = manager.getRepository(MissionEntity);
         const commissionRepository = manager.getRepository(CommissionEntity);
         const walletRepository = manager.getRepository(WalletEntity);
@@ -182,9 +184,9 @@ export class PaymentsService {
             previousBalance: null,
             newBalance:
               syncedMission.partnerProfile?.wallet?.balance ?? wallet.balance,
-            commissionAmount: Number(existingCommission.commissionAmount).toFixed(
-              2,
-            ),
+            commissionAmount: Number(
+              existingCommission.commissionAmount,
+            ).toFixed(2),
             wasAlreadyProcessed: true,
             message: 'Commission already existed and mission was synced',
           };

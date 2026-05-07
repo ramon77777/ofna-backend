@@ -1,26 +1,23 @@
-import { IsEmail, IsOptional, IsString, Length, Matches } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
   @IsString()
-  @Length(1, 100)
+  @MaxLength(100)
   firstName?: string;
 
   @IsOptional()
   @IsString()
-  @Length(1, 100)
+  @MaxLength(100)
   lastName?: string;
 
   @IsOptional()
   @IsString()
-  @Length(8, 30)
-  @Matches(/^[0-9+\s()-]+$/, {
-    message: 'phone format is invalid',
-  })
+  @MaxLength(30)
   phone?: string;
 
   @IsOptional()
   @IsEmail()
-  @Length(3, 150)
+  @MaxLength(150)
   email?: string;
 }

@@ -6,20 +6,24 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { UserEntity } from '../users/entities/user.entity';
+import { PasswordResetTokenEntity } from './entities/password-reset-token.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity]),
+    TypeOrmModule.forFeature([UserEntity, PasswordResetTokenEntity]),
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService): JwtModuleOptions => {
-        const secret = configService.get<string>('jwt.secret') ?? 'change_this_secret';
+        const secret =
+          configService.get<string>('jwt.secret') ?? 'change_this_secret';
         const expiresIn: SignOptions['expiresIn'] =
-          (configService.get<string>('jwt.expiresIn') as SignOptions['expiresIn']) ?? '7d';
+          (configService.get<string>(
+            'jwt.expiresIn',
+          ) as SignOptions['expiresIn']) ?? '7d';
 
         return {
           secret,

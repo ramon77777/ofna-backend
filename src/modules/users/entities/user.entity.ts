@@ -88,10 +88,7 @@ export class UserEntity {
   })
   lastLoginAt!: Date | null;
 
-  @OneToOne(
-    () => PartnerProfileEntity,
-    (partnerProfile) => partnerProfile.user,
-  )
+  @OneToOne(() => PartnerProfileEntity, (partnerProfile) => partnerProfile.user)
   partnerProfile?: PartnerProfileEntity;
 
   @CreateDateColumn({

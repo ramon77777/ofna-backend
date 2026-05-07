@@ -39,10 +39,16 @@ export class UsersService {
   ): Promise<UserEntity> {
     const user = await this.findById(userId);
 
-    if (dto.phone) {
+    if (dto.phone !== undefined) {
+      const normalizedPhone = dto.phone.trim();
+
+      if (!normalizedPhone) {
+        throw new ConflictException('Phone number is required');
+      }
+
       const existingUserWithPhone = await this.usersRepository.findOne({
         where: {
-          phone: dto.phone,
+          phone: normalizedPhone,
           id: Not(userId),
         },
       });
@@ -50,35 +56,35 @@ export class UsersService {
       if (existingUserWithPhone) {
         throw new ConflictException('Phone number is already in use');
       }
+
+      user.phone = normalizedPhone;
     }
 
-    if (dto.email) {
-      const normalizedEmail = dto.email.trim().toLowerCase();
+    if (dto.email !== undefined) {
+      const normalizedEmail = dto.email?.trim().toLowerCase() || null;
 
-      const existingUserWithEmail = await this.usersRepository.findOne({
-        where: {
-          email: normalizedEmail,
-          id: Not(userId),
-        },
-      });
+      if (normalizedEmail) {
+        const existingUserWithEmail = await this.usersRepository.findOne({
+          where: {
+            email: normalizedEmail,
+            id: Not(userId),
+          },
+        });
 
-      if (existingUserWithEmail) {
-        throw new ConflictException('Email is already in use');
+        if (existingUserWithEmail) {
+          throw new ConflictException('Email is already in use');
+        }
       }
 
       user.email = normalizedEmail;
     }
 
     if (dto.firstName !== undefined) {
-      user.firstName = dto.firstName.trim();
+      user.firstName = dto.firstName.trim() || null;
     }
 
     if (dto.lastName !== undefined) {
-      user.lastName = dto.lastName.trim();
-    }
-
-    if (dto.phone !== undefined) {
-      user.phone = dto.phone.trim();
+      user.lastName = dto.lastName.trim() || null;
     }
 
     await this.usersRepository.save(user);
@@ -93,7 +99,9 @@ export class UsersService {
     const user = await this.findById(userId);
 
     user.profilePhotoUrl =
-      dto.profilePhotoUrl === undefined ? user.profilePhotoUrl : dto.profilePhotoUrl;
+      dto.profilePhotoUrl === undefined
+        ? user.profilePhotoUrl
+        : dto.profilePhotoUrl;
 
     await this.usersRepository.save(user);
 

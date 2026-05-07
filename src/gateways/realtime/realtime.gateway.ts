@@ -37,7 +37,7 @@ export class RealtimeGateway
     this.logger.log(`Socket disconnected: ${client.id}`);
   }
 
-    @SubscribeMessage('auth:identify')
+  @SubscribeMessage('auth:identify')
   async identifyUser(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: SocketUserPayload,
@@ -67,9 +67,7 @@ export class RealtimeGateway
     const room = this.getUserRoom(userId);
     this.server.to(room).emit(event, data);
 
-    this.logger.log(
-      `Emitted event "${event}" to user room ${room}`,
-    );
+    this.logger.log(`Emitted event "${event}" to user room ${room}`);
   }
 
   emitToManyUsers(userIds: string[], event: string, data: unknown): void {
