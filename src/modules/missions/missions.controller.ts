@@ -25,6 +25,8 @@ import { ValidateMissionPriceDto } from './dto/validate-mission-price.dto';
 import { MissionEntity } from './entities/mission.entity';
 import { MissionsService } from './missions.service';
 
+import { UpdatePartnerLocationDto } from './dto/update-partner-location.dto';
+
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('missions')
 export class MissionsController {
@@ -56,6 +58,14 @@ export class MissionsController {
     @CurrentUser() currentUser: CurrentUserData,
   ): Promise<MissionEntity[]> {
     return this.missionsService.getPartnerMissions(currentUser.sub);
+  }
+
+  @Roles(UserRole.PARTNER)
+  @Get('partner/available')
+  async getAvailableMissionsForPartner(
+    @CurrentUser() currentUser: CurrentUserData,
+  ): Promise<MissionEntity[]> {
+    return this.missionsService.getAvailableMissionsForPartner(currentUser.sub);
   }
 
   @Roles(UserRole.PARTNER)
@@ -134,6 +144,20 @@ export class MissionsController {
     @Body() dto: CancelMissionDto,
   ): Promise<MissionEntity> {
     return this.missionsService.cancelMission(currentUser.sub, missionId, dto);
+  }
+
+  @Roles(UserRole.PARTNER)
+  @Patch(':missionId/partner-location')
+  async updatePartnerLocation(
+    @CurrentUser() currentUser: CurrentUserData,
+    @Param('missionId') missionId: string,
+    @Body() dto: UpdatePartnerLocationDto,
+  ): Promise<MissionEntity> {
+    return this.missionsService.updatePartnerLocation(
+      currentUser.sub,
+      missionId,
+      dto,
+    );
   }
 
   @Roles(UserRole.CLIENT, UserRole.PARTNER, UserRole.ADMIN)

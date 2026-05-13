@@ -44,7 +44,13 @@ export class CommissionsService {
             user: true,
           },
         },
-        order: true,
+        order: {
+          client: true,
+          product: true,
+          partnerProfile: {
+            user: true,
+          },
+        },
       },
       order: {
         createdAt: 'DESC',

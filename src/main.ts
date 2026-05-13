@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 import { AppModule } from './app.module';
@@ -17,36 +18,38 @@ async function bootstrap(): Promise<void> {
   const reflector = app.get(Reflector);
   const logger = new Logger('Bootstrap');
 
-  app.setGlobalPrefix('api/v1');
+  const uploadsPath = join(process.cwd(), 'uploads');
 
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+  if (!existsSync(uploadsPath)) {
+    mkdirSync(uploadsPath, { recursive: true });
+  }
+
+  app.useStaticAssets(uploadsPath, {
     prefix: '/uploads',
   });
 
-  app.enableCors({
-    origin: true,
-    credentials: true,
-  });
+  app.setGlobalPrefix('api/v1');
 
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
     }),
   );
 
   app.useGlobalInterceptors(new ClassSerializerInterceptor(reflector));
 
-  const port = configService.get<number>('app.port', 3000);
+  app.enableCors({
+    origin: configService.get<string>('app.corsOrigin') ?? '*',
+    credentials: true,
+  });
+
+  const port = configService.get<number>('app.port') ?? 3000;
 
   await app.listen(port);
 
-  logger.log(`OFNA Depannage API running on port ${port}`);
-  logger.log(`Uploads served from /uploads`);
+  logger.log(`OFNA backend started on port ${port}`);
 }
 
 void bootstrap();

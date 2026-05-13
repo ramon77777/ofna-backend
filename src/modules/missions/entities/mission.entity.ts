@@ -184,6 +184,31 @@ export class MissionEntity {
   })
   commissionProcessed!: boolean;
 
+  @Column({
+    name: 'partner_current_latitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
+  partnerCurrentLatitude!: string | null;
+
+  @Column({
+    name: 'partner_current_longitude',
+    type: 'decimal',
+    precision: 10,
+    scale: 7,
+    nullable: true,
+  })
+  partnerCurrentLongitude!: string | null;
+
+  @Column({
+    name: 'partner_location_updated_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  partnerLocationUpdatedAt!: Date | null;
+
   @OneToMany(
     () => MissionStatusHistoryEntity,
     (statusHistory) => statusHistory.mission,

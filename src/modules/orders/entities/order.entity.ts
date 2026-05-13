@@ -17,6 +17,8 @@ import { PartnerProfileEntity } from '../../partners/entities/partner-profile.en
 import { ProductEntity } from '../../products/entities/product.entity';
 import { UserEntity } from '../../users/entities/user.entity';
 
+import { ReviewEntity } from '../../reviews/entities/review.entity';
+
 @Entity('orders')
 @Index('idx_orders_client_id', ['client'])
 @Index('idx_orders_partner_profile_id', ['partnerProfile'])
@@ -69,6 +71,22 @@ export class OrderEntity {
   validatedAmount!: string | null;
 
   @Column({
+    name: 'delivery_fee',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  deliveryFee!: string | null;
+
+  @Column({
+    name: 'delivery_fee_confirmed_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  deliveryFeeConfirmedAt!: Date | null;
+
+  @Column({
     name: 'payment_mode',
     type: 'enum',
     enum: PaymentMode,
@@ -107,6 +125,9 @@ export class OrderEntity {
 
   @OneToMany(() => CommissionEntity, (commission) => commission.order)
   commissions?: CommissionEntity[];
+
+  @OneToMany(() => ReviewEntity, (review) => review.order)
+  reviews?: ReviewEntity[];
 
   @CreateDateColumn({
     name: 'created_at',

@@ -63,6 +63,13 @@ export class ProductEntity {
   mainPhotoUrl!: string | null;
 
   @Column({
+    name: 'secondary_photo_url',
+    type: 'text',
+    nullable: true,
+  })
+  secondaryPhotoUrl!: string | null;
+
+  @Column({
     type: 'enum',
     enum: ProductAvailability,
     default: ProductAvailability.DISPONIBLE,

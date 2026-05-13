@@ -38,6 +38,11 @@ import { WalletTransactionEntity } from './modules/wallet-transactions/entities/
 import { CommissionsModule } from './modules/commissions/commissions.module';
 import { PasswordResetTokenEntity } from './modules/auth/entities/password-reset-token.entity';
 
+import { ProductsModule } from './modules/products/products.module';
+import { OrdersModule } from './modules/orders/orders.module';
+
+import { ReviewsModule } from './modules/reviews/reviews.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -92,6 +97,9 @@ import { PasswordResetTokenEntity } from './modules/auth/entities/password-reset
     NotificationsModule,
     AdminModule,
     PaymentsModule,
+    ProductsModule,
+    OrdersModule,
+    ReviewsModule,
     MatchingModule,
     RealtimeModule,
     WalletTransactionsModule,

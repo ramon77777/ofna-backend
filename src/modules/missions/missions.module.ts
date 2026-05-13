@@ -15,6 +15,8 @@ import { UserEntity } from '../users/entities/user.entity';
 import { WalletEntity } from '../wallets/entities/wallet.entity';
 import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-transaction.entity';
 
+import { ReviewEntity } from '../reviews/entities/review.entity';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -26,6 +28,7 @@ import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-
       WalletTransactionEntity,
       NotificationEntity,
       CommissionEntity,
+      ReviewEntity,
     ]),
     MissionStatusHistoryModule,
     NotificationsModule,

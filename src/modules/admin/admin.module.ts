@@ -14,6 +14,10 @@ import { WalletTransactionEntity } from '../wallet-transactions/entities/wallet-
 import { WalletEntity } from '../wallets/entities/wallet.entity';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { OrderEntity } from '../orders/entities/order.entity';
+
+import { ReviewEntity } from '../reviews/entities/review.entity';
+import { ReviewsModule } from '../reviews/reviews.module';
 
 @Module({
   imports: [
@@ -26,8 +30,11 @@ import { AdminService } from './admin.service';
       WalletRechargeEntity,
       WalletEntity,
       WalletTransactionEntity,
+      OrderEntity,
+      ReviewEntity,
     ]),
     NotificationsModule,
+    ReviewsModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],

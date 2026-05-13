@@ -6,6 +6,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
+import { OrderStatus } from '../../common/enums/order-status.enum';
+import { OrderEntity } from '../orders/entities/order.entity';
+
 import { CommissionOperationType } from '../../common/enums/commission-operation-type.enum';
 import { MissionStatus } from '../../common/enums/mission-status.enum';
 import { NotificationType } from '../../common/enums/notification-type.enum';
@@ -44,6 +47,9 @@ export class AdminService {
 
     @InjectRepository(MissionEntity)
     private readonly missionsRepository: Repository<MissionEntity>,
+
+    @InjectRepository(OrderEntity)
+    private readonly ordersRepository: Repository<OrderEntity>,
 
     @InjectRepository(CommissionEntity)
     private readonly commissionsRepository: Repository<CommissionEntity>,
@@ -425,7 +431,13 @@ export class AdminService {
             user: true,
           },
         },
-        order: true,
+        order: {
+          client: true,
+          product: true,
+          partnerProfile: {
+            user: true,
+          },
+        },
       },
       order: {
         createdAt: 'DESC',
@@ -584,15 +596,66 @@ export class AdminService {
       .select('COALESCE(SUM(commission.commissionAmount), 0)', 'total')
       .getRawOne<{ total: string }>();
 
+    const missionCommissionRaw = await this.commissionsRepository
+      .createQueryBuilder('commission')
+      .select('COALESCE(SUM(commission.commissionAmount), 0)', 'total')
+      .where('commission.operationType = :operationType', {
+        operationType: CommissionOperationType.MISSION,
+      })
+      .getRawOne<{ total: string }>();
+
+    const orderCommissionRaw = await this.commissionsRepository
+      .createQueryBuilder('commission')
+      .select('COALESCE(SUM(commission.commissionAmount), 0)', 'total')
+      .where('commission.operationType = :operationType', {
+        operationType: CommissionOperationType.VENTE_PIECE,
+      })
+      .getRawOne<{ total: string }>();
+
+    const missionCommissionsCount = await this.commissionsRepository.count({
+      where: {
+        operationType: CommissionOperationType.MISSION,
+      },
+    });
+
+    const orderCommissionsCount = await this.commissionsRepository.count({
+      where: {
+        operationType: CommissionOperationType.VENTE_PIECE,
+      },
+    });
+
     const totalRechargesRaw = await this.walletRechargesRepository
       .createQueryBuilder('recharge')
       .select('COALESCE(SUM(recharge.amount), 0)', 'total')
+      .getRawOne<{ total: string }>();
+
+    const successfulRechargesRaw = await this.walletRechargesRepository
+      .createQueryBuilder('recharge')
+      .select('COALESCE(SUM(recharge.amount), 0)', 'total')
+      .where('recharge.transactionStatus = :status', {
+        status: 'reussie',
+      })
+      .getRawOne<{ total: string }>();
+
+    const pendingRechargesRaw = await this.walletRechargesRepository
+      .createQueryBuilder('recharge')
+      .select('COALESCE(SUM(recharge.amount), 0)', 'total')
+      .where('recharge.transactionStatus = :status', {
+        status: 'en_attente',
+      })
       .getRawOne<{ total: string }>();
 
     const pendingRecharges = await this.walletRechargesRepository
       .createQueryBuilder('walletRecharge')
       .where('walletRecharge.transactionStatus = :status', {
         status: 'en_attente',
+      })
+      .getCount();
+
+    const successfulRecharges = await this.walletRechargesRepository
+      .createQueryBuilder('walletRecharge')
+      .where('walletRecharge.transactionStatus = :status', {
+        status: 'reussie',
       })
       .getCount();
 
@@ -610,7 +673,13 @@ export class AdminService {
             user: true,
           },
         },
-        order: true,
+        order: {
+          client: true,
+          product: true,
+          partnerProfile: {
+            user: true,
+          },
+        },
       },
       order: {
         createdAt: 'DESC',
@@ -652,8 +721,23 @@ export class AdminService {
         totalCommissionAmount: Number(totalCommissionRaw?.total ?? '0').toFixed(
           2,
         ),
+        missionCommissionAmount: Number(
+          missionCommissionRaw?.total ?? '0',
+        ).toFixed(2),
+        orderCommissionAmount: Number(orderCommissionRaw?.total ?? '0').toFixed(
+          2,
+        ),
+        missionCommissionsCount,
+        orderCommissionsCount,
         totalRechargeAmount: Number(totalRechargesRaw?.total ?? '0').toFixed(2),
+        successfulRechargeAmount: Number(
+          successfulRechargesRaw?.total ?? '0',
+        ).toFixed(2),
+        pendingRechargeAmount: Number(
+          pendingRechargesRaw?.total ?? '0',
+        ).toFixed(2),
         pendingRecharges,
+        successfulRecharges,
         totalTransactions,
       },
       recentCommissions,
@@ -683,12 +767,60 @@ export class AdminService {
       where: { missionStatus: MissionStatus.TERMINEE },
     });
 
+    const totalOrders = await this.ordersRepository.count();
+
+    const pendingOrders = await this.ordersRepository.count({
+      where: { orderStatus: OrderStatus.EN_ATTENTE },
+    });
+
+    const inProgressOrders = await this.ordersRepository
+      .createQueryBuilder('order')
+      .where('order.orderStatus IN (:...statuses)', {
+        statuses: [OrderStatus.CONFIRMEE, OrderStatus.EN_TRAITEMENT],
+      })
+      .getCount();
+
+    const completedOrders = await this.ordersRepository.count({
+      where: { orderStatus: OrderStatus.TERMINEE },
+    });
+
+    const cancelledOrders = await this.ordersRepository.count({
+      where: { orderStatus: OrderStatus.ANNULEE },
+    });
+
+    const totalOrdersAmountRaw = await this.ordersRepository
+      .createQueryBuilder('order')
+      .select(
+        'COALESCE(SUM(COALESCE(order.validatedAmount, order.proposedAmount)), 0)',
+        'total',
+      )
+      .getRawOne<{ total: string }>();
+
+    const completedOrdersAmountRaw = await this.ordersRepository
+      .createQueryBuilder('order')
+      .select(
+        'COALESCE(SUM(COALESCE(order.validatedAmount, order.proposedAmount)), 0)',
+        'total',
+      )
+      .where('order.orderStatus = :status', {
+        status: OrderStatus.TERMINEE,
+      })
+      .getRawOne<{ total: string }>();
+
     const pendingRecharges = await this.walletRechargesRepository
       .createQueryBuilder('walletRecharge')
       .where('walletRecharge.transactionStatus = :status', {
         status: 'en_attente',
       })
       .getCount();
+
+    const pendingRechargeAmountRaw = await this.walletRechargesRepository
+      .createQueryBuilder('recharge')
+      .select('COALESCE(SUM(recharge.amount), 0)', 'total')
+      .where('recharge.transactionStatus = :status', {
+        status: 'en_attente',
+      })
+      .getRawOne<{ total: string }>();
 
     const documentsToRedo = await this.partnerDocumentsRepository.count({
       where: { documentStatus: PartnerDocumentStatus.A_REPRENDRE },
@@ -704,6 +836,22 @@ export class AdminService {
     const totalCommissionRaw = await this.commissionsRepository
       .createQueryBuilder('commission')
       .select('COALESCE(SUM(commission.commissionAmount), 0)', 'total')
+      .getRawOne<{ total: string }>();
+
+    const missionCommissionRaw = await this.commissionsRepository
+      .createQueryBuilder('commission')
+      .select('COALESCE(SUM(commission.commissionAmount), 0)', 'total')
+      .where('commission.operationType = :operationType', {
+        operationType: CommissionOperationType.MISSION,
+      })
+      .getRawOne<{ total: string }>();
+
+    const orderCommissionRaw = await this.commissionsRepository
+      .createQueryBuilder('commission')
+      .select('COALESCE(SUM(commission.commissionAmount), 0)', 'total')
+      .where('commission.operationType = :operationType', {
+        operationType: CommissionOperationType.VENTE_PIECE,
+      })
       .getRawOne<{ total: string }>();
 
     const recentMissions = await this.missionsRepository.find({
@@ -725,6 +873,21 @@ export class AdminService {
         user: true,
         wallet: true,
         documents: true,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+      take: 6,
+    });
+
+    const recentOrders = await this.ordersRepository.find({
+      relations: {
+        client: true,
+        partnerProfile: {
+          user: true,
+        },
+        product: true,
+        commissions: true,
       },
       order: {
         createdAt: 'DESC',
@@ -758,7 +921,20 @@ export class AdminService {
       operationalAlerts.push({
         level: 'info',
         title: 'Recharges en attente',
-        message: `${pendingRecharges} recharge(s) portefeuille attendent un traitement.`,
+        message: `${pendingRecharges} recharge(s) portefeuille attendent un traitement pour un total de ${Number(
+          pendingRechargeAmountRaw?.total ?? '0',
+        ).toLocaleString('fr-FR', {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })} FCFA.`,
+      });
+    }
+
+    if (pendingOrders > 0) {
+      operationalAlerts.push({
+        level: 'info',
+        title: 'Commandes boutique en attente',
+        message: `${pendingOrders} commande(s) boutique attendent une confirmation partenaire.`,
       });
     }
 
@@ -785,15 +961,36 @@ export class AdminService {
         validatedPartners,
         totalMissions,
         completedMissions,
+        totalOrders,
+        pendingOrders,
+        inProgressOrders,
+        completedOrders,
+        cancelledOrders,
+        totalOrdersAmount: Number(totalOrdersAmountRaw?.total ?? '0').toFixed(
+          2,
+        ),
+        completedOrdersAmount: Number(
+          completedOrdersAmountRaw?.total ?? '0',
+        ).toFixed(2),
         totalCommissionAmount: Number(totalCommissionRaw?.total ?? '0').toFixed(
           2,
         ),
+        missionCommissionAmount: Number(
+          missionCommissionRaw?.total ?? '0',
+        ).toFixed(2),
+        orderCommissionAmount: Number(orderCommissionRaw?.total ?? '0').toFixed(
+          2,
+        ),
         pendingRecharges,
+        pendingRechargeAmount: Number(
+          pendingRechargeAmountRaw?.total ?? '0',
+        ).toFixed(2),
         documentsToRedo,
         commissionsToProcess,
       },
       recentMissions,
       recentPartners,
+      recentOrders,
       operationalAlerts,
     };
   }

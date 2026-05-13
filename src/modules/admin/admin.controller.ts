@@ -15,11 +15,17 @@ import { UpdatePartnerDocumentStatusDto } from './dto/update-partner-document-st
 import { UpdatePartnerVisibilityDto } from './dto/update-partner-visibility.dto';
 import { ValidatePartnerDto } from './dto/validate-partner.dto';
 
+import { ReviewEntity } from '../reviews/entities/review.entity';
+import { ReviewsService } from '../reviews/reviews.service';
+
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly reviewsService: ReviewsService,
+  ) {}
 
   @Get('partners')
   async getAllPartners(): Promise<PartnerProfileEntity[]> {
@@ -99,6 +105,11 @@ export class AdminController {
   @Get('commissions')
   async getAllCommissions(): Promise<CommissionEntity[]> {
     return this.adminService.getAllCommissions();
+  }
+
+  @Get('reviews')
+  async getAllReviews(): Promise<ReviewEntity[]> {
+    return this.reviewsService.getAllReviewsForAdmin();
   }
 
   @Get('finance')

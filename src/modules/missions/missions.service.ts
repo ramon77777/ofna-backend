@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { CommissionOperationType } from '../../common/enums/commission-operation-type.enum';
 import { MissionStatus } from '../../common/enums/mission-status.enum';
@@ -30,6 +30,8 @@ import { CommissionEntity } from '../commissions/entities/commission.entity';
 
 import { UserRole } from '../../common/enums/user-role.enum';
 import { CurrentUserData } from '../../common/interfaces/current-user.interface';
+
+import { UpdatePartnerLocationDto } from './dto/update-partner-location.dto';
 
 @Injectable()
 export class MissionsService {
@@ -155,6 +157,20 @@ export class MissionsService {
       cancelledAt: mission.cancelledAt ?? null,
       previousStatus,
       newStatus: mission.missionStatus,
+      message,
+    };
+  }
+
+  private buildPartnerLocationUpdatedPayload(
+    mission: MissionEntity,
+    message: string,
+  ): Record<string, unknown> {
+    return {
+      missionId: mission.id,
+      missionStatus: mission.missionStatus,
+      partnerCurrentLatitude: mission.partnerCurrentLatitude ?? null,
+      partnerCurrentLongitude: mission.partnerCurrentLongitude ?? null,
+      partnerLocationUpdatedAt: mission.partnerLocationUpdatedAt ?? null,
       message,
     };
   }
@@ -324,6 +340,42 @@ export class MissionsService {
         partnerProfile: {
           user: { id: partnerUserId },
         },
+      },
+      relations: {
+        client: true,
+        partnerProfile: {
+          user: true,
+          wallet: true,
+        },
+        commissions: true,
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
+
+  async getAvailableMissionsForPartner(
+    partnerUserId: string,
+  ): Promise<MissionEntity[]> {
+    const partnerProfile = await this.partnerProfilesRepository.findOne({
+      where: {
+        user: { id: partnerUserId },
+      },
+      relations: {
+        user: true,
+        wallet: true,
+      },
+    });
+
+    if (!partnerProfile) {
+      throw new NotFoundException('Partner profile not found');
+    }
+
+    return this.missionsRepository.find({
+      where: {
+        missionStatus: MissionStatus.EN_ATTENTE,
+        partnerProfile: IsNull(),
       },
       relations: {
         client: true,
@@ -792,6 +844,83 @@ export class MissionsService {
     }
   }
 
+  async updatePartnerLocation(
+    partnerUserId: string,
+    missionId: string,
+    dto: UpdatePartnerLocationDto,
+  ): Promise<MissionEntity> {
+    const mission = await this.missionsRepository.findOne({
+      where: { id: missionId },
+      relations: {
+        client: true,
+        partnerProfile: {
+          user: true,
+          wallet: true,
+        },
+      },
+    });
+
+    if (!mission) {
+      throw new NotFoundException('Mission not found');
+    }
+
+    if (
+      !mission.partnerProfile ||
+      mission.partnerProfile.user.id !== partnerUserId
+    ) {
+      throw new BadRequestException('This mission is not assigned to you');
+    }
+
+    const statusesAllowingLocation = [
+      MissionStatus.EN_ROUTE,
+      MissionStatus.ARRIVE_SUR_PLACE,
+      MissionStatus.EN_COURS,
+    ];
+
+    if (!statusesAllowingLocation.includes(mission.missionStatus)) {
+      throw new BadRequestException(
+        'La position du partenaire ne peut être envoyée que pendant une mission démarrée.',
+      );
+    }
+
+    mission.partnerCurrentLatitude = dto.partnerLatitude;
+    mission.partnerCurrentLongitude = dto.partnerLongitude;
+    mission.partnerLocationUpdatedAt = new Date();
+
+    await this.missionsRepository.save(mission);
+
+    await this.missionStatusHistoryService.addHistoryEntry(mission.id, {
+      previousStatus: mission.missionStatus,
+      newStatus: mission.missionStatus,
+      comment:
+        dto.comment ??
+        'Position partenaire mise à jour depuis l’application mobile.',
+    });
+
+    const freshMission = await this.getMissionById(mission.id);
+
+    const payload = this.buildPartnerLocationUpdatedPayload(
+      freshMission,
+      'La position du partenaire a été mise à jour.',
+    );
+
+    this.realtimeGateway.emitToUser(
+      freshMission.client.id,
+      'mission.partner.location.updated',
+      payload,
+    );
+
+    if (freshMission.partnerProfile?.user?.id) {
+      this.realtimeGateway.emitToUser(
+        freshMission.partnerProfile.user.id,
+        'mission.partner.location.updated',
+        payload,
+      );
+    }
+
+    return freshMission;
+  }
+
   async updateMissionStatus(
     partnerUserId: string,
     missionId: string,
@@ -822,6 +951,22 @@ export class MissionsService {
     const previousStatus = mission.missionStatus;
 
     this.assertValidPartnerStatusTransition(previousStatus, dto.missionStatus);
+
+    const statusesRequiringValidatedAmount = [
+      MissionStatus.EN_ROUTE,
+      MissionStatus.ARRIVE_SUR_PLACE,
+      MissionStatus.EN_COURS,
+      MissionStatus.TERMINEE,
+    ];
+
+    if (
+      statusesRequiringValidatedAmount.includes(dto.missionStatus) &&
+      !mission.validatedAmount
+    ) {
+      throw new BadRequestException(
+        'Impossible de faire avancer la mission sans prix validé par le client.',
+      );
+    }
 
     mission.missionStatus = dto.missionStatus;
 
