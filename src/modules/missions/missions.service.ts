@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, IsNull, Not, Repository } from 'typeorm';
 
 import { CommissionOperationType } from '../../common/enums/commission-operation-type.enum';
 import { MissionStatus } from '../../common/enums/mission-status.enum';
@@ -32,6 +32,10 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { CurrentUserData } from '../../common/interfaces/current-user.interface';
 
 import { UpdatePartnerLocationDto } from './dto/update-partner-location.dto';
+
+import { PartnerValidationStatus } from '../../common/enums/partner-validation-status.enum';
+import { PartnerActivityType } from '../../common/enums/partner-activity-type.enum';
+import { MissionType } from '../../common/enums/mission-type.enum';
 
 @Injectable()
 export class MissionsService {
@@ -175,6 +179,60 @@ export class MissionsService {
     };
   }
 
+  private getAllowedActivityTypesForMission(
+    missionType: MissionType,
+  ): PartnerActivityType[] {
+    if (missionType === MissionType.REMORQUAGE) {
+      return [PartnerActivityType.REMORQUEUR];
+    }
+
+    return [PartnerActivityType.DEPANNEUR, PartnerActivityType.GARAGISTE];
+  }
+
+  private assertPartnerCanReceiveMission(
+    partnerProfile: PartnerProfileEntity,
+    missionType: MissionType,
+  ): void {
+    if (partnerProfile.validationStatus !== PartnerValidationStatus.VALIDE) {
+      throw new BadRequestException(
+        'Ce partenaire n’est pas encore validé par OFNA.',
+      );
+    }
+
+    if (!partnerProfile.isVisible) {
+      throw new BadRequestException(
+        'Ce partenaire n’est pas visible dans l’application.',
+      );
+    }
+
+    if (!partnerProfile.isAvailable) {
+      throw new BadRequestException(
+        'Ce partenaire n’est pas disponible actuellement.',
+      );
+    }
+
+    const allowedActivityTypes =
+      this.getAllowedActivityTypesForMission(missionType);
+
+    if (!allowedActivityTypes.includes(partnerProfile.activityType)) {
+      throw new BadRequestException(
+        'Ce partenaire n’est pas adapté à ce type de mission.',
+      );
+    }
+
+    if (!partnerProfile.wallet) {
+      throw new BadRequestException(
+        'Ce partenaire n’a pas encore de portefeuille.',
+      );
+    }
+
+    if (partnerProfile.wallet.walletStatus !== WalletStatus.ACTIF) {
+      throw new BadRequestException(
+        'Ce partenaire n’a pas un portefeuille actif.',
+      );
+    }
+  }
+
   async createMission(
     clientUserId: string,
     dto: CreateMissionDto,
@@ -201,6 +259,8 @@ export class MissionsService {
       if (!partnerProfile) {
         throw new NotFoundException('Partner profile not found');
       }
+
+      this.assertPartnerCanReceiveMission(partnerProfile, dto.missionType);
     }
 
     const mission = this.missionsRepository.create({
@@ -340,6 +400,7 @@ export class MissionsService {
         partnerProfile: {
           user: { id: partnerUserId },
         },
+        missionStatus: Not(MissionStatus.EN_ATTENTE),
       },
       relations: {
         client: true,
@@ -372,11 +433,25 @@ export class MissionsService {
       throw new NotFoundException('Partner profile not found');
     }
 
+    const allowedMissionTypes =
+      partnerProfile.activityType === PartnerActivityType.REMORQUEUR
+        ? [MissionType.REMORQUAGE]
+        : [MissionType.DEPANNAGE];
+
     return this.missionsRepository.find({
-      where: {
-        missionStatus: MissionStatus.EN_ATTENTE,
-        partnerProfile: IsNull(),
-      },
+      where: [
+        {
+          missionStatus: MissionStatus.EN_ATTENTE,
+          partnerProfile: {
+            user: { id: partnerUserId },
+          },
+        },
+        {
+          missionStatus: MissionStatus.EN_ATTENTE,
+          partnerProfile: IsNull(),
+          missionType: allowedMissionTypes[0],
+        },
+      ],
       relations: {
         client: true,
         partnerProfile: {

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -7,6 +15,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUserData } from '../../common/interfaces/current-user.interface';
 import { CreatePartnerProfileDto } from './dto/create-partner-profile.dto';
+import { FindNearbyPartnersDto } from './dto/find-nearby-partners.dto';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto';
 import { UpdatePartnerProfileDto } from './dto/update-partner-profile.dto';
 import { PartnerProfileEntity } from './entities/partner-profile.entity';
@@ -16,6 +25,12 @@ import { PartnersService } from './partners.service';
 @Controller('partners')
 export class PartnersController {
   constructor(private readonly partnersService: PartnersService) {}
+
+  @Roles(UserRole.CLIENT, UserRole.ADMIN)
+  @Get('nearby')
+  async findNearbyPartners(@Query() dto: FindNearbyPartnersDto) {
+    return this.partnersService.findNearbyPartners(dto);
+  }
 
   @Roles(UserRole.PARTNER)
   @Post('register')

@@ -1,7 +1,9 @@
 export enum PaymentMode {
-  MOBILE_MONEY = 'mobile_money',
   ESPECE = 'espece',
-  HYBRIDE = 'hybride',
+  WAVE = 'wave',
+  ORANGE_MONEY = 'orange_money',
+  MOOV_MONEY = 'moov_money',
+  MTN_MONEY = 'mtn_money',
 
   ESPECE_LIVRAISON = 'espece_livraison',
   WAVE_LIVRAISON = 'wave_livraison',

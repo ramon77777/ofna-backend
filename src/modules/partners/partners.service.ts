@@ -17,6 +17,11 @@ import { UpdateAvailabilityDto } from './dto/update-availability.dto';
 import { UpdatePartnerProfileDto } from './dto/update-partner-profile.dto';
 import { PartnerProfileEntity } from './entities/partner-profile.entity';
 
+import { MissionType } from '../../common/enums/mission-type.enum';
+import { PartnerActivityType } from '../../common/enums/partner-activity-type.enum';
+import { WalletStatus } from '../../common/enums/wallet-status.enum';
+import { FindNearbyPartnersDto } from './dto/find-nearby-partners.dto';
+
 @Injectable()
 export class PartnersService {
   constructor(
@@ -31,6 +36,165 @@ export class PartnersService {
     @InjectRepository(CommissionEntity)
     private readonly commissionsRepository: Repository<CommissionEntity>,
   ) {}
+
+  private readonly priorityRadiusKm = 5;
+
+  private toNumber(value: string | null | undefined): number | null {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private calculateDistanceKm(
+    fromLatitude: number,
+    fromLongitude: number,
+    toLatitude: number,
+    toLongitude: number,
+  ): number {
+    const earthRadiusKm = 6371;
+
+    const toRadians = (value: number) => (value * Math.PI) / 180;
+
+    const latitudeDistance = toRadians(toLatitude - fromLatitude);
+    const longitudeDistance = toRadians(toLongitude - fromLongitude);
+
+    const a =
+      Math.sin(latitudeDistance / 2) * Math.sin(latitudeDistance / 2) +
+      Math.cos(toRadians(fromLatitude)) *
+        Math.cos(toRadians(toLatitude)) *
+        Math.sin(longitudeDistance / 2) *
+        Math.sin(longitudeDistance / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return earthRadiusKm * c;
+  }
+
+  private getAllowedActivityTypesForMission(
+    missionType: MissionType,
+  ): PartnerActivityType[] {
+    if (missionType === MissionType.REMORQUAGE) {
+      return [PartnerActivityType.REMORQUEUR];
+    }
+
+    return [PartnerActivityType.DEPANNEUR, PartnerActivityType.GARAGISTE];
+  }
+
+  async findNearbyPartners(dto: FindNearbyPartnersDto) {
+    const clientLatitude = this.toNumber(dto.latitude);
+    const clientLongitude = this.toNumber(dto.longitude);
+
+    if (clientLatitude === null || clientLongitude === null) {
+      throw new BadRequestException('Coordonnées client invalides.');
+    }
+
+    const allowedActivityTypes = this.getAllowedActivityTypesForMission(
+      dto.missionType,
+    );
+
+    const partners = await this.partnerProfilesRepository.find({
+      where: {
+        validationStatus: PartnerValidationStatus.VALIDE,
+        isAvailable: true,
+        isVisible: true,
+      },
+      relations: {
+        user: true,
+        wallet: true,
+      },
+    });
+
+    const eligiblePartners = partners
+      .filter((partner) => allowedActivityTypes.includes(partner.activityType))
+      .filter((partner) => {
+        if (!partner.wallet) {
+          return false;
+        }
+
+        return partner.wallet.walletStatus === WalletStatus.ACTIF;
+      })
+      .map((partner) => {
+        const partnerLatitude = this.toNumber(partner.latitude);
+        const partnerLongitude = this.toNumber(partner.longitude);
+
+        if (partnerLatitude === null || partnerLongitude === null) {
+          return null;
+        }
+
+        const distanceKm = this.calculateDistanceKm(
+          clientLatitude,
+          clientLongitude,
+          partnerLatitude,
+          partnerLongitude,
+        );
+
+        return {
+          id: partner.id,
+          businessName:
+            partner.businessName ||
+            `${partner.user?.firstName ?? ''} ${partner.user?.lastName ?? ''}`.trim() ||
+            'Partenaire OFNA',
+          activityType: partner.activityType,
+          description: partner.description,
+          interventionZone: partner.interventionZone,
+          address: partner.address,
+          latitude: partner.latitude,
+          longitude: partner.longitude,
+          phone: partner.user?.phone ?? null,
+          averageRating: partner.averageRating,
+          reviewsCount: partner.reviewsCount,
+          isAvailable: partner.isAvailable,
+          isVisible: partner.isVisible,
+          distanceKm: Number(distanceKm.toFixed(2)),
+          isWithinPriorityRadius: distanceKm <= this.priorityRadiusKm,
+        };
+      })
+      .filter(
+        (partner): partner is NonNullable<typeof partner> => partner !== null,
+      )
+      .sort((first, second) => {
+        if (first.isWithinPriorityRadius !== second.isWithinPriorityRadius) {
+          return first.isWithinPriorityRadius ? -1 : 1;
+        }
+
+        if (first.distanceKm !== second.distanceKm) {
+          return first.distanceKm - second.distanceKm;
+        }
+
+        const firstRating = Number(first.averageRating ?? 0);
+        const secondRating = Number(second.averageRating ?? 0);
+
+        if (firstRating !== secondRating) {
+          return secondRating - firstRating;
+        }
+
+        return (
+          Number(second.reviewsCount ?? 0) - Number(first.reviewsCount ?? 0)
+        );
+      });
+
+    const nearbyPartners = eligiblePartners.filter(
+      (partner) => partner.isWithinPriorityRadius,
+    );
+
+    const otherPartners = eligiblePartners.filter(
+      (partner) => !partner.isWithinPriorityRadius,
+    );
+
+    return {
+      priorityRadiusKm: this.priorityRadiusKm,
+      total: eligiblePartners.length,
+      nearbyCount: nearbyPartners.length,
+      otherCount: otherPartners.length,
+      nearbyPartners,
+      otherPartners,
+      partners: eligiblePartners,
+    };
+  }
 
   async createPartnerProfile(
     userId: string,
