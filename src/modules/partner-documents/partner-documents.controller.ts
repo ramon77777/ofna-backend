@@ -29,6 +29,8 @@ import { UpdatePartnerDocumentDto } from './dto/update-partner-document.dto';
 import { PartnerDocumentEntity } from './entities/partner-document.entity';
 import { PartnerDocumentsService } from './partner-documents.service';
 
+import { ConfigService } from '@nestjs/config';
+
 interface UploadedPartnerDocumentFile {
   filename: string;
   originalname: string;
@@ -66,6 +68,7 @@ function generateSafeFilename(originalName: string, userId: string): string {
 export class PartnerDocumentsController {
   constructor(
     private readonly partnerDocumentsService: PartnerDocumentsService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -131,7 +134,12 @@ export class PartnerDocumentsController {
       throw new BadRequestException('Le type de document est obligatoire.');
     }
 
-    const fileUrl = `/uploads/partner-documents/${file.filename}`;
+    const apiUrl =
+      this.configService.get<string>('API_PUBLIC_URL') ??
+      'http://localhost:3000';
+
+    const fileUrl =
+      `${apiUrl}/uploads/partner-documents/${file.filename}`;
 
     return this.partnerDocumentsService.createUploadedDocument(
       currentUser.sub,
@@ -214,7 +222,12 @@ export class PartnerDocumentsController {
       throw new BadRequestException('Le fichier du document est obligatoire.');
     }
 
-    const fileUrl = `/uploads/partner-documents/${file.filename}`;
+    const apiUrl =
+      this.configService.get<string>('API_PUBLIC_URL') ??
+      'http://localhost:3000';
+
+    const fileUrl =
+      `${apiUrl}/uploads/partner-documents/${file.filename}`;
 
     return this.partnerDocumentsService.replaceDocumentFile(
       currentUser.sub,
