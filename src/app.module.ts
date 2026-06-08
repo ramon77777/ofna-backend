@@ -55,36 +55,58 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('database.host'),
-        port: configService.get<number>('database.port'),
-        username: configService.get<string>('database.username'),
-        password: configService.get<string>('database.password'),
-        database: configService.get<string>('database.name'),
-        entities: [
-          UserEntity,
-          PasswordResetTokenEntity,
-          PartnerProfileEntity,
-          PartnerDocumentEntity,
-          WalletEntity,
-          WalletRechargeEntity,
-          MissionEntity,
-          MissionStatusHistoryEntity,
-          CommissionEntity,
-          ProductEntity,
-          OrderEntity,
-          ReviewEntity,
-          SupportTicketEntity,
-          NotificationEntity,
-          SystemSettingEntity,
-          WalletTransactionEntity,
-        ],
-        synchronize: false,
-        logging: configService.get<boolean>('database.logging', false),
-        timezone: 'UTC',
-      }),
-    }),
+      useFactory: (configService: ConfigService) => {
+        const databaseUrl = configService.get<string | null>('database.url');
+        const useSsl = configService.get<boolean>('database.ssl', false);
+
+        return {
+          type: 'postgres',
+
+          ...(databaseUrl
+            ? {
+                url: databaseUrl,
+              }
+            : {
+                host: configService.get<string>('database.host'),
+                port: configService.get<number>('database.port'),
+                username: configService.get<string>('database.username'),
+                password: configService.get<string>('database.password'),
+                database: configService.get<string>('database.name'),
+              }),
+
+          ...(useSsl
+            ? {
+                ssl: {
+                  rejectUnauthorized: false,
+                },
+              }
+            : {}),
+
+          entities: [
+            UserEntity,
+            PasswordResetTokenEntity,
+            PartnerProfileEntity,
+            PartnerDocumentEntity,
+            WalletEntity,
+            WalletRechargeEntity,
+            MissionEntity,
+            MissionStatusHistoryEntity,
+            CommissionEntity,
+            ProductEntity,
+            OrderEntity,
+            ReviewEntity,
+            SupportTicketEntity,
+            NotificationEntity,
+            SystemSettingEntity,
+            WalletTransactionEntity,
+          ],
+
+          synchronize: configService.get<boolean>('database.synchronize', false),
+          logging: configService.get<boolean>('database.logging', false),
+          timezone: 'UTC',
+        };
+      },
+}),
 
     UsersModule,
     PartnersModule,
