@@ -11,10 +11,9 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { memoryStorage } from 'multer';
 
+import { cloudinary } from '../../config/cloudinary.config';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PartnerDocumentType } from '../../common/enums/partner-document-type.enum';
@@ -29,16 +28,12 @@ import { UpdatePartnerDocumentDto } from './dto/update-partner-document.dto';
 import { PartnerDocumentEntity } from './entities/partner-document.entity';
 import { PartnerDocumentsService } from './partner-documents.service';
 
-import { ConfigService } from '@nestjs/config';
-
 interface UploadedPartnerDocumentFile {
-  filename: string;
   originalname: string;
   mimetype: string;
   size: number;
+  buffer: Buffer;
 }
-
-const uploadDestination = join(process.cwd(), 'uploads', 'partner-documents');
 
 const allowedMimeTypes = [
   'application/pdf',
@@ -48,28 +43,41 @@ const allowedMimeTypes = [
   'image/webp',
 ];
 
-function ensureUploadDirectoryExists() {
-  if (!existsSync(uploadDestination)) {
-    mkdirSync(uploadDestination, { recursive: true });
-  }
-}
-
-function generateSafeFilename(originalName: string, userId: string): string {
-  const extension = extname(originalName).toLowerCase();
-  const timestamp = Date.now();
-  const randomPart = Math.round(Math.random() * 1_000_000_000);
-
-  return `${userId}-${timestamp}-${randomPart}${extension}`;
-}
-
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.PARTNER)
 @Controller('partner-documents')
 export class PartnerDocumentsController {
   constructor(
     private readonly partnerDocumentsService: PartnerDocumentsService,
-    private readonly configService: ConfigService,
   ) {}
+
+  private async uploadToCloudinary(
+    file: UploadedPartnerDocumentFile,
+    userId: string,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: `ofna/partner-documents/${userId}`,
+          resource_type: 'auto',
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject(
+              new BadRequestException(
+                'Impossible d’envoyer le fichier vers Cloudinary.',
+              ),
+            );
+            return;
+          }
+
+          resolve(result.secure_url);
+        },
+      );
+
+      uploadStream.end(file.buffer);
+    });
+  }
 
   /**
    * Ancien endpoint conservé :
@@ -91,18 +99,7 @@ export class PartnerDocumentsController {
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, callback) => {
-          ensureUploadDirectoryExists();
-          callback(null, uploadDestination);
-        },
-        filename: (req, file, callback) => {
-          const user = req.user as CurrentUserData | undefined;
-          const userId = user?.sub ?? 'partner';
-
-          callback(null, generateSafeFilename(file.originalname, userId));
-        },
-      }),
+      storage: memoryStorage(),
       fileFilter: (_req, file, callback) => {
         if (!allowedMimeTypes.includes(file.mimetype)) {
           callback(
@@ -134,12 +131,7 @@ export class PartnerDocumentsController {
       throw new BadRequestException('Le type de document est obligatoire.');
     }
 
-    const apiUrl =
-      this.configService.get<string>('API_PUBLIC_URL') ??
-      'http://localhost:3000';
-
-    const fileUrl =
-      `${apiUrl}/uploads/partner-documents/${file.filename}`;
+    const fileUrl = await this.uploadToCloudinary(file, currentUser.sub);
 
     return this.partnerDocumentsService.createUploadedDocument(
       currentUser.sub,
@@ -182,18 +174,7 @@ export class PartnerDocumentsController {
   @Patch(':documentId/upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, callback) => {
-          ensureUploadDirectoryExists();
-          callback(null, uploadDestination);
-        },
-        filename: (req, file, callback) => {
-          const user = req.user as CurrentUserData | undefined;
-          const userId = user?.sub ?? 'partner';
-
-          callback(null, generateSafeFilename(file.originalname, userId));
-        },
-      }),
+      storage: memoryStorage(),
       fileFilter: (_req, file, callback) => {
         if (!allowedMimeTypes.includes(file.mimetype)) {
           callback(
@@ -222,12 +203,7 @@ export class PartnerDocumentsController {
       throw new BadRequestException('Le fichier du document est obligatoire.');
     }
 
-    const apiUrl =
-      this.configService.get<string>('API_PUBLIC_URL') ??
-      'http://localhost:3000';
-
-    const fileUrl =
-      `${apiUrl}/uploads/partner-documents/${file.filename}`;
+    const fileUrl = await this.uploadToCloudinary(file, currentUser.sub);
 
     return this.partnerDocumentsService.replaceDocumentFile(
       currentUser.sub,

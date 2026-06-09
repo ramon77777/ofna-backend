@@ -11,8 +11,12 @@ import { join } from 'path';
 
 import { AppModule } from './app.module';
 
+import { configureCloudinary } from './config/cloudinary.config';
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  configureCloudinary();
 
   const configService = app.get(ConfigService);
   const reflector = app.get(Reflector);
